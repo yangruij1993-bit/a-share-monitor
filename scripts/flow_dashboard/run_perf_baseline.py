@@ -1,4 +1,4 @@
-"""性能基线脚本：跑一次 eod_preview + intraday + monthly，记录耗时分布。
+"""性能基线脚本：跑一次 intraday + eod_preview + monthly，记录耗时分布。
 
 per spec §3.5 共通验收：未冻结前不强加 < 5min 阈值；本脚本只落实测分布。
 
@@ -14,10 +14,19 @@ per spec §3.5 共通验收：未冻结前不强加 < 5min 阈值；本脚本只
 注意：脚本写入真实 OUTPUT_DIR（非 /tmp）。intraday 输出是幂等的
 ``intraday_latest.html``，eod_preview 自动递增版本号，monthly 仅刷新分类
 快照。这些产物本身就是 Phase B baseline 的证据，故保留。
+
+Concurrency:
+    本脚本对 ``api_capabilities.yaml`` 是 read-modify-write，无 flock 保护；
+    intended as manual one-shot，不要挂在 launchd 与其它 runner 并发。
+
+Reproducibility:
+    ``intraday_seconds`` 受网络/时段影响，单次结果不构成 statistically significant
+    样本；冻结前需多次采样并对照不同时段。
 """
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -42,6 +51,7 @@ def _time_runner(name: str, fn, perf: dict) -> None:
     try:
         fn()
     except Exception as exc:  # noqa: BLE001 — 任意 runner 错误都视为 baseline 数据
+        logger.exception("runner %s failed", name)
         perf[f"{name}_error"] = f"{type(exc).__name__}: {exc}"
     perf[f"{name}_seconds"] = time.perf_counter() - t0
 
@@ -54,7 +64,7 @@ def main() -> None:
     perf: dict = {
         "as_of": as_of.isoformat(),
         "data_date": data_date,
-        "tushare_token_set": bool(__import__("os").environ.get("ASHARE_FLOW_TUSHARE_TOKEN")),
+        "tushare_token_set": bool(os.environ.get("ASHARE_FLOW_TUSHARE_TOKEN")),
     }
 
     _time_runner(
