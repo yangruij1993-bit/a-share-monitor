@@ -147,3 +147,31 @@ def test_pull_index_daily_contract(tushare_token):
     for col in ("ts_code", "trade_date", "close", "open", "high", "low"):
         assert col in df.columns
     assert pd.api.types.is_datetime64_any_dtype(df["trade_date"])
+
+
+# === Task 16: Suffix-invariant regression (Red Line 1 守护) ===
+
+def test_normalize_etf_share_size_suffix_invariant():
+    """per spec §3.5 后缀不变测试：追加未来日数据不应改写历史行。"""
+    from flow_dashboard.data.tushare_providers import _normalize_etf_share_size
+
+    base = pd.DataFrame([
+        {"trade_date": "20260807", "ts_code": "510050.SH", "etf_name": "X",
+         "total_share": 100.0, "total_size": 100.0, "exchange": "SSE"},
+        {"trade_date": "20260808", "ts_code": "510050.SH", "etf_name": "X",
+         "total_share": 110.0, "total_size": 110.0, "exchange": "SSE"},
+    ])
+    suffix = pd.DataFrame([
+        {"trade_date": "20260809", "ts_code": "510050.SH", "etf_name": "X",
+         "total_share": 150.0, "total_size": 150.0, "exchange": "SSE"},
+    ])
+    out_base = _normalize_etf_share_size(base).set_index("trade_date")
+    out_suffix = _normalize_etf_share_size(
+        pd.concat([base, suffix], ignore_index=True)
+    ).set_index("trade_date")
+
+    common = out_base.index.intersection(out_suffix.index)
+    pd.testing.assert_frame_equal(
+        out_base.loc[common], out_suffix.loc[common],
+        check_like=True,
+    )
