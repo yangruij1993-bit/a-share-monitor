@@ -94,6 +94,8 @@ def test_render_top15_etf_daily_returns_html_fragment():
     df["ts_code"] = [f"ETF{i:03d}.SH" for i in range(len(df))]
     html = render_top15_etf_daily(df, **PANEL_KWARGS)
     assert "TOP15" in html or "TOP" in html
+    # TOP15 应被截断到前 15 只；ETF015（第 16 只）不应出现
+    assert "ETF015" not in html
 
 
 def test_render_handles_empty_df_gracefully():
@@ -103,3 +105,12 @@ def test_render_handles_empty_df_gracefully():
     html = render_huijin_broad_daily(empty, data_date="2026-08-12",
                                      coverage=None, last_success_at=None)
     assert "stale" in html.lower() or "数据不可得" in html
+
+
+def test_render_label_filter_yields_empty_sub_shows_stale():
+    """df 非空但 label 过滤后无行：面板应 stale，不渲染空 figure。"""
+    df = _flow_df(["broad"])  # df 有数据，但没有 huijin 标签
+    html = render_huijin_broad_daily(df, **PANEL_KWARGS)
+    assert "stale" in html.lower() or "数据不可得" in html
+    # 不应该出现空 figure 的 Plotly 调用
+    assert "Plotly.newPlot" not in html
