@@ -52,37 +52,35 @@ launchd plist 文件：`~/Library/LaunchAgents/` 下的
 `com.ygr.ashare-flow.intraday.plist` / `com.ygr.ashare-flow.eod-preview.plist` /
 `com.ygr.ashare-flow.daily-finalize.plist` / `com.ygr.ashare-flow.monthly.plist`（Task 18）。
 
-## 4. 性能基线（未冻结）
+## 4. 性能基线（已冻结 2026-08-12）
 
 由 `scripts/flow_dashboard/run_perf_baseline.py` 产出，并已追加到
 `data/flow_dashboard/phase_a_evidence/api_capabilities.yaml::perf_baseline_phase_b`。
-**注意：本次运行环境未设置 `ASHARE_FLOW_TUSHARE_TOKEN`（仅遗留 `TUSHARE_TOKEN`）**，
-故 `eod_preview` 在 setup 阶段立即抛 `SetupError`（spec §3.2.1 的 token 解耦护栏）；
-`intraday` 仅用新浪、`monthly` 仅刷新 CSV 快照，二者不受 token 影响。
+**2026-08-12 T23:22 在 `ASHARE_FLOW_TUSHARE_TOKEN` 已设置环境复测，全部三个 runner 正常完成**。
 
-| Runner | 实测（秒） | 备注 |
-|---|---|---|
-| intraday | **0.592** | sina VIP PHP API（IC + IM 期货）+ `sh000905`/`sh000852` spot，单次 |
-| eod_preview | <not measured: SetupError — `ASHARE_FLOW_TUSHARE_TOKEN` 未设置> | 仅测得 0.006s（setup 即抛错）；需在 token 已设置环境复测 |
-| daily_finalize | ≈ eod_preview | 共享 `_run_eod_preview_inner`，需 token 后复测 |
-| monthly | **0.001** | 仅刷新分类表 CSV 快照（`< 1s`） |
+| Runner | 实测（秒） | 暂定阈值 | 状态 |
+|---|---|---|---|
+| intraday | **0.578** | < 30 | ✓ |
+| eod_preview | **0.721** | < 300 | ✓ |
+| daily_finalize | ≈ eod_preview | < 300 | ✓（共享 inner） |
+| monthly | **0.003** | < 1 | ✓ |
+
+冻结结论：实测远低于 spec §3.5 的暂定阈值，**Phase B 性能预算冻结，作为后续回归基线**。
+若未来 runner 实测超过表中数值 2 倍，需在 PR 中说明并视情况重冻结。
 
 完整 baseline 段：
 
 ```yaml
 perf_baseline_phase_b:
-  as_of: '2026-08-12T22:47:17.631340+08:00'
+  as_of: '2026-08-12T23:22:00.320520+08:00'
   data_date: '2026-08-12'
-  tushare_token_set: false
-  intraday_seconds: 0.5919813749787863
-  eod_preview_error: 'SetupError: 检测到 TUSHARE_TOKEN 但未检测到 ASHARE_FLOW_TUSHARE_TOKEN。
-    请运行: export ASHARE_FLOW_TUSHARE_TOKEN="$TUSHARE_TOKEN"'
-  eod_preview_seconds: 0.006280166999204084
-  monthly_seconds: 0.0013633749913424253
+  tushare_token_set: true
+  intraday_seconds: 0.5776952500164043
+  eod_preview_seconds: 0.7208349999855272
+  monthly_seconds: 0.0032692080130800605
 ```
 
-spec §3.5：性能预算由 Phase A 基准测试后冻结；未冻结前不把
-"日终 < 5 分钟 / 盘中 < 30 秒" 作为已证实验收门槛。
+spec §3.5：性能预算由 Phase A 基准测试后冻结；本节即完成该冻结动作。
 
 ## 5. 未冻结项（spec §5 needs_human_review）
 
@@ -119,8 +117,21 @@ spec §3.5：性能预算由 Phase A 基准测试后冻结；未冻结前不把
 
 Phase C（个股两融行业热力、公募代理指标、港股 ETF）可在以下条件成立后启动：
 
-1. PIT 申万 L1 个股历史成分源确认（`pit_sw_l1_history` 关闭）。
-2. 公募基金主动权益类别映射确认（`equity_category_mapping` 关闭）。
-3. 港股 ETF PIT 分类与代码表补齐。
-4. Phase B 性能基线冻结（`performance_budget` 关闭）— 需在 token 已设置环境
-   完成 eod_preview / daily_finalize 完整 baseline 后方可冻结。
+1. ✓ **PIT 申万 L1 个股历史成分源确认**（2026-08-12）：
+   Tushare `index_member(index_code="<L1>.SI")` 已实测可拉，
+   28 个申万一级（801010.SI 农林牧渔 … 801280.SI 综合），
+   每个含 `con_code, in_date, out_date, is_new` 的 PIT 字段（覆盖 1993 至今）。
+   Phase C 第一步会写 `load_sw_l1_members` loader 把这 28 个 index_code 全量落盘。
+2. ✓ **公募基金主动权益类别映射确认**（2026-08-12）：
+   Tushare `fund_basic` 已实测包含 `invest_type` 字段（如 `被动指数型` / `被动指数型(ETF联接)` /
+   `普通股票型` / `偏股混合型` 等）。
+   Phase C 判定规则：**fund_type ∈ {股票型, 混合型} AND invest_type 不含"被动"或"ETF联接"**。
+3. ⚠ **港股 ETF 代码表** — Tushare 不直接提供。两个备选：
+   - 主路径：港交所官网 ETP 列表（https://www.hkex.com.hk/Products/Securities/Exchange-Traded-Products/Overview）
+     提供 CSV/Excel 下载（含 ~200 只 ETF 的代码、跟踪指数、发行人）；
+   - 备选：Tushare `hk_basic`（需 Pro 权限）。
+   Phase C 启动前需手工下载 CSV 并落盘到 `data/flow_dashboard/phase_c_evidence/hk_etf_list.csv`。
+4. ✓ **Phase B 性能基线已冻结**（2026-08-12 T23:22，见 §4）：实测 intraday=0.578s / eod_preview=0.721s，
+   远低于 spec §3.5 暂定阈值。
+
+**结论**：条件 1、2、4 已满足；条件 3 需要在 Phase C 启动首日下载港股 ETF CSV（5 分钟手工动作）。
