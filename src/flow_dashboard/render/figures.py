@@ -15,7 +15,7 @@ from flow_dashboard.render.theme import COLORS, apply_theme
 _CNY_TO_YI = 1e8  # 亿元
 
 
-def _to_yi(values):
+def _to_yi(values: pd.Series | list[float]) -> list[float | None]:
     return [v / _CNY_TO_YI if pd.notna(v) else None for v in values]
 
 
@@ -110,7 +110,7 @@ def horizontal_topn_panel(
     fig = go.Figure()
     flows_yi = _to_yi(df["etf_estimated_flow_cny"].tolist())
     colors = [
-        COLORS["positive_flow"] if v >= 0 else COLORS["negative_flow"]
+        COLORS["positive_flow"] if (v is not None and v >= 0) else COLORS["negative_flow"]
         for v in flows_yi
     ]
     fig.add_trace(go.Bar(
@@ -159,7 +159,10 @@ def dual_subplot_basis_panel(
     coverage: float | None = None,
     last_success_at: str | None = None,
 ) -> go.Figure:
-    """IC/IM 双 subplot：basis_points 折线 + annualized_discount_rate 副图。"""
+    """IC/IM 双 subplot：basis_points 柱图（每个 variety 一行）。
+
+    注：``annualized_discount_rate`` 列存在但不在此首版中绘制（spec §3.5.2 仅要求跟踪基差）。
+    """
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=False,
         subplot_titles=("IC 中证 500 基差", "IM 中证 1000 基差"),

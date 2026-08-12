@@ -86,3 +86,23 @@ def test_dual_subplot_basis_panel_has_two_rows():
     fig = dual_subplot_basis_panel(ic, im, data_date="2026-08-12")
     # 2 subplot rows
     assert "yaxis2" in str(fig.layout)
+
+
+def test_horizontal_topn_panel_handles_nan_flow_without_crash():
+    """NaN flow values must not raise (defensive against upstream gaps)."""
+    df = pd.DataFrame([
+        {"ts_code": "A", "etf_estimated_flow_cny": 1e9},
+        {"ts_code": "B", "etf_estimated_flow_cny": float("nan")},
+        {"ts_code": "C", "etf_estimated_flow_cny": -2e9},
+    ])
+    fig = horizontal_topn_panel(df, title="TOP", data_date="2026-08-12", topn=15)
+    assert len(fig.data) == 1
+
+
+def test_line_cumulative_panel_converts_y_to_yi():
+    """1e9 元 → 10 亿元; verifies the _to_yi conversion is wired up."""
+    df = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2026-08-07"), "cumulative_flow_cny": 1e9},
+    ])
+    fig = line_cumulative_panel(df, title="累计", data_date="2026-08-12")
+    assert list(fig.data[0].y) == [10.0]
