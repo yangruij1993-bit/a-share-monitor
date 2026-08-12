@@ -104,6 +104,8 @@ def render_figure_to_html(fig: go.Figure, *, div_id: str, full_html: bool = Fals
         full_html=full_html,
         include_plotlyjs=(get_plotly_bundle() if full_html else False),
         div_id=div_id,
+        default_height="450px",
+        default_width="100%",
     )
 
 

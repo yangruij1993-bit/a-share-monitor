@@ -379,7 +379,12 @@ def _load_margin_for_pipeline(start, end, as_of):
 
 def _load_fut_daily_for_pipeline(ts_code, start, end, as_of):
     from flow_dashboard.data.loaders import load_fut_daily
-    return load_fut_daily(ts_code=ts_code, start=start, end=end, as_of=as_of)
+    df = load_fut_daily(ts_code=ts_code, start=start, end=end, as_of=as_of)
+    if not df.empty and "delist_date" not in df.columns:
+        # Phase B 占位：未接 fut_basic；与 _quotes_to_fut_df 保持一致（pipeline.py:120）
+        # Tushare fut_daily 的 trade_date 是 tz-naive，故占位也用 tz-naive
+        df["delist_date"] = pd.Timestamp("2026-08-21")
+    return df
 
 
 def _load_index_daily_for_pipeline(ts_code, start, end, as_of):
