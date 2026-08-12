@@ -44,6 +44,8 @@ from flow_dashboard.pipeline import (  # noqa: E402
     run_eod_preview, run_intraday, run_monthly,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _time_runner(name: str, fn, perf: dict) -> None:
     """统一计时包装：捕获异常并以 ``<name>_seconds`` / ``<name>_error`` 落盘。"""

@@ -49,8 +49,8 @@
 | monthly | `run_monthly` | 每月 1 日 09:00 | `pit_labels_monthly_<date>.csv` |
 
 launchd plist 文件：`~/Library/LaunchAgents/` 下的
-`com.ygr.ashare-flow.intraday.plist` / `.eod.plist` / `.finalize.plist` /
-`.monthly.plist`（Task 18）。
+`com.ygr.ashare-flow.intraday.plist` / `com.ygr.ashare-flow.eod-preview.plist` /
+`com.ygr.ashare-flow.daily-finalize.plist` / `com.ygr.ashare-flow.monthly.plist`（Task 18）。
 
 ## 4. 性能基线（未冻结）
 
@@ -113,7 +113,7 @@ spec §3.5：性能预算由 Phase A 基准测试后冻结；未冻结前不把
 - 性能基线未冻结；本次 eod_preview 因 token 未设置未取得完整数值，
   待 `ASHARE_FLOW_TUSHARE_TOKEN` 配置后需补一次正式 baseline。
 - 高频拉取时 Tushare token 配额成本未审计（token 与主项目共用同一账户）。
-- launchd plist 中 intraday 仅展开周一时刻；周二至周五需安装时补齐或用 wrapper 展开。
+- `run_intraday` 目前不检查交易日历；周末/节假日 launchd 触发时会拉取到 silent-empty 数据并覆盖上一交易日的 `intraday_latest.html` 为 stale（Phase C 加入 `trade_cal` 短路）。
 
 ## 8. Phase C 启动条件
 
