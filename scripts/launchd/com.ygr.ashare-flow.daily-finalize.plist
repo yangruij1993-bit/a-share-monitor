@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ygr.ashare-flow.daily-finalize</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Users/xinghuazhang/ygr-project/a股监控/scripts/flow_dashboard/run_daily_finalize.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/xinghuazhang/ygr-project/a股监控</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>9</integer>
+        <key>Minute</key><integer>35</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/xinghuazhang/ygr-project/a股监控/logs/flow_dashboard/daily_finalize.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/xinghuazhang/ygr-project/a股监控/logs/flow_dashboard/daily_finalize.err</string>
+</dict>
+</plist>

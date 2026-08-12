@@ -17,7 +17,7 @@ from flow_dashboard.pipeline import run_daily_finalize  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-date", required=True)
+    parser.add_argument("--data-date", default=None)
     parser.add_argument("--as-of", default=None)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,8 @@ def main() -> None:
     else:
         as_of = pd.Timestamp.now(tz=TIMEZONE)
 
-    path = run_daily_finalize(data_date=args.data_date, as_of=as_of)
+    data_date = args.data_date or (as_of - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    path = run_daily_finalize(data_date=data_date, as_of=as_of)
     print(f"daily_finalize published: {path}")
 
 
