@@ -414,3 +414,13 @@ live_sample:
       - low
       - date
       - time
+perf_baseline_phase_b:
+  as_of: '2026-08-12T22:47:17.631340+08:00'
+  data_date: '2026-08-12'
+  tushare_token_set: false
+  intraday_seconds: 0.5919813749787863
+  eod_preview_error: 'SetupError: 检测到 TUSHARE_TOKEN 但未检测到 ASHARE_FLOW_TUSHARE_TOKEN。
+
+    请运行: export ASHARE_FLOW_TUSHARE_TOKEN="$TUSHARE_TOKEN"'
+  eod_preview_seconds: 0.006280166999204084
+  monthly_seconds: 0.0013633749913424253
