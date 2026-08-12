@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Virtual envs
+.venv/
+venv/
+
+# Project data (Phase A evidence committed explicitly under data/flow_dashboard/phase_a_evidence/)
+data/flow_dashboard/cache/
+output/
+logs/
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
