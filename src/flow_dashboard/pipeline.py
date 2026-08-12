@@ -418,6 +418,30 @@ def run_daily_finalize(
         return output_dir / f"report_{data_date}_v01.html"
 
 
-# 后续 task 实现：
-def run_monthly(*, as_of, force: bool = False) -> str:
-    raise NotImplementedError
+def run_monthly(
+    *,
+    as_of: pd.Timestamp,
+    output_dir: Path | str | None = None,
+    labels_path: Path | str | None = None,
+    force: bool = False,
+) -> Path:
+    """每月入口：Phase B 仅刷新 PIT 分类表快照。
+
+    spec §3.1: 公募代理指标（s6/s7）属于 Phase C，本函数不实现。
+    spec §3.1: 数据未披露则保留上期并显示原始 source_date。
+
+    本函数只做"快照拷贝"：不强制 PIT 完整 schema（confirmed_at 等可缺），
+    避免在月度归档环节因局部缺列阻断发布；下游分析环节仍由 load_pit_labels
+    做严格契约校验。源文件未变更时，重复调用产出字节一致（to_csv 确定性）。
+    """
+    output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if labels_path is None:
+        labels_path = Path("data/flow_dashboard/phase_a_evidence/etf_pit_labels.csv")
+    labels_path = Path(labels_path)
+
+    df = pd.read_csv(labels_path)
+    snapshot_path = output_dir / f"pit_labels_monthly_{as_of.strftime('%Y-%m-%d')}.csv"
+    df.to_csv(snapshot_path, index=False, encoding="utf-8-sig")
+    return snapshot_path
