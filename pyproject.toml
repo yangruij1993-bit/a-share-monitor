@@ -1,7 +1,7 @@
 [project]
 name = "ashare-flow-dashboard"
-version = "0.1.0a0"
-description = "A 股流动性与 ETF 资金流日度跟踪仪表板 — Phase A 数据可得性 Gate"
+version = "0.1.0b0"
+description = "A 股流动性与 ETF 资金流日度跟踪仪表板 — Phase B 可发布 MVP"
 requires-python = ">=3.13"
 dependencies = [
     "pandas>=2.2",
@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31",
     "pyarrow>=15.0",
+    "plotly>=5.20",
 ]
 
 [project.optional-dependencies]

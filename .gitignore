@@ -14,6 +14,11 @@ venv/
 data/flow_dashboard/cache/
 output/
 logs/
+output/ashare_flow_daily/*.html
+output/ashare_flow_daily/staging/
+output/ashare_flow_daily/manifest/
+!output/ashare_flow_daily/.gitkeep
+!output/ashare_flow_daily/manifest/.gitkeep
 
 # Editor
 .vscode/

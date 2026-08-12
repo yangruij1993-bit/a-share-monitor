@@ -36,7 +36,21 @@ def get_tushare_token() -> str:
     return token
 
 
+OUTPUT_DIR = PROJECT_ROOT / "output" / "ashare_flow_daily"
+MANIFEST_DIR = OUTPUT_DIR / "manifest"
+STAGING_DIR = OUTPUT_DIR / "staging"
+INTRADAY_OUTPUT = OUTPUT_DIR / "intraday_latest.html"
+RUNNERS_LOCK = OUTPUT_DIR / "runners.lock"
+
+
+def ensure_output_dirs() -> None:
+    """幂等创建 Phase B 输出目录。"""
+    for d in (OUTPUT_DIR, MANIFEST_DIR, STAGING_DIR):
+        d.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_dirs() -> None:
     """幂等创建项目所需目录。"""
     for d in (DATA_DIR, CACHE_DIR, EVIDENCE_DIR, LOG_DIR):
         d.mkdir(parents=True, exist_ok=True)
+    ensure_output_dirs()
