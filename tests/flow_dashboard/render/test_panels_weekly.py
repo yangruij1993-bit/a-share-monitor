@@ -55,3 +55,11 @@ def test_render_weekly_empty_df_gracefully():
     html = render_broad_weekly(empty, data_date="2026-08-12",
                                coverage=None, last_success_at=None)
     assert "stale" in html.lower() or "数据不可得" in html
+
+
+def test_render_broad_weekly_label_mismatch_shows_stale():
+    """df 非空但 label 过滤后无行：面板应 stale（守护 Task 9 修复的同类 bug）。"""
+    df = _weekly_df("industry")  # 无 broad 标签
+    html = render_broad_weekly(df, **KW)
+    assert "stale" in html.lower() or "数据不可得" in html
+    assert "Plotly.newPlot" not in html
