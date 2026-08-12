@@ -7,6 +7,8 @@ per spec §3.3 + §7.4:
 """
 from __future__ import annotations
 
+import re
+from html import escape as _html_escape
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -20,14 +22,10 @@ def _get_plotly_js() -> str:
     global _PLOTLY_JS_CACHE
     if _PLOTLY_JS_CACHE is None:
         bundle = get_plotlyjs()
-        # Remove external references for offline mode (spec §3.3)
-        # Replace all https:// references in src= and href= attributes
-        import re
-        # Replace src="https://..."
+        # Strip external URLs for offline mode (spec §3.3).
+        # Hostnames observed in plotly 6.x bundle; re-check if plotly upgrades.
         bundle = re.sub(r'src="https://[^"]*"', 'src=""', bundle)
-        # Replace href="https://..."
         bundle = re.sub(r'href="https://[^"]*"', 'href="#"', bundle)
-        # Also remove plain URL references in comments/code
         bundle = bundle.replace('cdn.plot.ly', 'offline-origin-disabled.plot.ly')
         bundle = bundle.replace('cartocdn.com', 'offline-origin-disabled.example.com')
         bundle = bundle.replace('basemaps.', 'basemaps-offline.')
@@ -67,7 +65,10 @@ def apply_theme(
     unit: str | None = None,
 ) -> go.Figure:
     """对 figure 应用统一主题：标题、轴标签、覆盖率和最新获取时间注解。"""
-    title_parts = [title, f"<span style='font-size:11px;color:#666'>数据日期: {data_date}</span>"]
+    title_parts = [
+        _html_escape(title),
+        f"<span style='font-size:11px;color:#666'>数据日期: {_html_escape(data_date)}</span>",
+    ]
     fig.update_layout(
         title={"text": "<br>".join(title_parts), "x": 0.5, "xanchor": "center"},
         yaxis={"title": y_title, "gridcolor": COLORS["grid"]},
@@ -114,14 +115,22 @@ def build_html_skeleton(
     last_success_at: str,
     footer: str = "市场观察，非交易建议",
 ) -> str:
-    """构建完整 HTML 文档。Plotly JS 仅在此处内嵌一次。"""
+    """构建完整 HTML 文档。Plotly JS 仅在此处内嵌一次。
+
+    注：``body`` 由调用方拼装 panel HTML，原样插入（caller 负责转义）；
+    其他字符串参数（title/data_date/last_success_at/footer）会被 HTML 转义。
+    """
     bundle = get_plotly_bundle()
+    title_h = _html_escape(title)
+    data_date_h = _html_escape(data_date)
+    last_success_at_h = _html_escape(last_success_at)
+    footer_h = _html_escape(footer)
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
+<title>{title_h}</title>
 <style>
 body {{ font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
        max-width: 1400px; margin: 0 auto; padding: 20px; background: {COLORS['background']}; }}
@@ -141,16 +150,16 @@ footer {{ margin-top: 40px; padding-top: 16px; border-top: 1px solid {COLORS['gr
 </head>
 <body>
 <header>
-  <h1>{title}</h1>
+  <h1>{title_h}</h1>
   <div class="meta">
-    <span>数据日期: {data_date}</span>
-    <span>最近成功获取时间: {last_success_at}</span>
+    <span>数据日期: {data_date_h}</span>
+    <span>最近成功获取时间: {last_success_at_h}</span>
   </div>
 </header>
 <main>
 {body}
 </main>
-<footer>{footer}</footer>
+<footer>{footer_h}</footer>
 </body>
 </html>"""
 

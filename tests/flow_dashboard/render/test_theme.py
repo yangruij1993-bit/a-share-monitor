@@ -33,8 +33,8 @@ def test_build_html_skeleton_has_required_sections():
     assert "最近成功获取时间" in html
     assert "市场观察，非交易建议" in html  # spec §7.4
     assert PLOTLY_JS_BUNDLE in html
-    # 只内嵌一次
-    assert html.count("Plotly.newPlot") >= 0  # 各 panel 调用
+    # Plotly bundle 只内嵌一次
+    assert html.count(PLOTLY_JS_BUNDLE) == 1
 
 
 def test_build_html_skeleton_offline_no_external_resource():
