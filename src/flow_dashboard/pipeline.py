@@ -171,6 +171,25 @@ def _run_eod_preview_inner(
     data_date: str, as_of: pd.Timestamp, output_dir: Path,
     universe: list[str] | None,
 ) -> Path:
+    # 与 render/panels_*.py 中 div_id 保持一致；下游 manifest → panel 映射按此列表对齐。
+    panel_ids = [
+        "panel-huijin-broad-daily",
+        "panel-tech-tmt-daily",
+        "panel-total-market-daily",
+        "panel-broad-daily",
+        "panel-industry-theme-daily",
+        "panel-category-cumulative-daily",
+        "panel-cycle-daily",
+        "panel-cycle-cumulative-daily",
+        "panel-top15-daily",
+        "panel-broad-weekly",
+        "panel-industry-weekly",
+        "panel-category-weekly",
+        "panel-monthly-total",
+        "panel-margin-exchange",
+        "panel-basis",
+    ]
+
     from flow_dashboard.data.pit_labels import load_pit_labels
     from flow_dashboard.indicators.etf_flow import compute_etf_flow
     from flow_dashboard.indicators.margin import (
@@ -210,8 +229,11 @@ def _run_eod_preview_inner(
     spot_500 = _load_index_daily_for_pipeline("000905.SH", start, end, as_of)
     spot_1000 = _load_index_daily_for_pipeline("000852.SH", start, end, as_of)
 
-    is_partial = etf_share.empty or (
-        not etf_share.empty and etf_share["trade_date"].max() < end
+    is_partial = (
+        etf_share.empty
+        or "trade_date" not in etf_share.columns
+        or pd.isna(etf_share["trade_date"].max())
+        or etf_share["trade_date"].max() < end
     )
 
     fund_nav = _load_fund_nav_for_pipeline(codes=codes, start=start, end=end, as_of=as_of)
@@ -327,7 +349,7 @@ def _run_eod_preview_inner(
         output_dir=output_dir, data_date=data_date,
         html_body=body,
         manifest_payload={
-            "panels": [f"panel-{i}" for i in range(15)],
+            "panels": panel_ids,
             "source_versions": {
                 "etf_share": "etf_share_size_v1",
                 "margin": "margin_v1",
