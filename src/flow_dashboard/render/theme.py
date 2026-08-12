@@ -81,7 +81,7 @@ def apply_theme(
     if coverage is not None:
         notes.append(f"覆盖率: {coverage:.1%}")
     if last_success_at:
-        notes.append(f"最近获取: {last_success_at}")
+        notes.append(f"最近成功获取时间: {last_success_at}")
     if unit:
         notes.append(f"单位: {unit}")
     if notes:
