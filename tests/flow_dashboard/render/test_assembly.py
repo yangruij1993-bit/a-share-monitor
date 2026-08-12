@@ -89,3 +89,32 @@ def test_acquire_runner_lock_serializes(tmp_path):
         with pytest.raises(RunnerLockError):
             with acquire_runner_lock(lock_path, timeout=0.1):
                 pass
+
+
+def test_publish_archive_rejects_truncated_disk_write(tmp_path, monkeypatch):
+    """磁盘写入被截断（staging 文件不含 </html>）→ publish_archive 必须报错且清理 staging。"""
+    from flow_dashboard.render import assembly
+
+    output_dir = tmp_path / "x"
+    output_dir.mkdir()
+
+    # 仿造 write_text 截断：只写前 5 个字符（破坏 </html>），不递归到原 write_text
+    original_write_text = Path.write_text
+
+    def _truncate_write(self, content, encoding="utf-8", errors=None, newline=None):
+        # 直接用 open() 写入截断内容，绕过 Path.write_text 防止递归
+        with open(self, "w", encoding=encoding, errors=errors, newline=newline) as f:
+            f.write(content[:5])
+
+    monkeypatch.setattr(Path, "write_text", _truncate_write)
+
+    with pytest.raises(ValueError, match="完整性"):
+        assembly.publish_archive(
+            output_dir=output_dir, data_date="2026-08-12",
+            html_body="", manifest_payload={},
+            full_html="<html><body>long body that gets truncated</body></html>",
+        )
+    # staging 清理
+    assert not list((output_dir / "staging").glob("*.tmp"))
+    # archive 未生成
+    assert not list(output_dir.glob("report_*.html"))

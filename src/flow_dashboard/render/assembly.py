@@ -20,8 +20,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-
-import pandas as pd
+from zoneinfo import ZoneInfo
 
 from flow_dashboard.config import TIMEZONE
 
@@ -35,7 +34,7 @@ def acquire_runner_lock(lock_path: Path | str, *, timeout: float = 0.0):
     """fcntl 文件锁；timeout=0 立即失败。"""
     lock_path = Path(lock_path)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fh = open(lock_path, "w")
+    fh = open(lock_path, "a")
     try:
         if timeout == 0:
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -100,12 +99,16 @@ def publish_archive(
     staging_path = staging_dir / f"{archive_name}.{uuid.uuid4().hex}.tmp"
     staging_path.write_text(full_html, encoding="utf-8")
 
-    # 完整性检查
-    if "<html" not in full_html.lower() or "</html>" not in full_html.lower():
+    # 完整性检查：验证落盘内容（捕获磁盘满 / 编码截断）
+    on_disk = staging_path.read_text(encoding="utf-8")
+    if "<html" not in on_disk.lower() or "</html>" not in on_disk.lower():
         staging_path.unlink(missing_ok=True)
         raise ValueError("HTML 完整性检查失败：缺少 <html>/</html>")
 
-    # 原子 rename
+    # 原子 rename（防御性：拒绝覆盖已存在归档）
+    if archive_path.exists():
+        staging_path.unlink(missing_ok=True)
+        raise FileExistsError(f"归档版本已存在: {archive_path}")
     staging_path.rename(archive_path)
 
     # manifest
@@ -113,7 +116,7 @@ def publish_archive(
         "data_date": data_date,
         "version": version,
         "archive_name": archive_name,
-        "run_at": datetime.now(tz=pd.Timestamp.now(tz=TIMEZONE).tz).isoformat(),
+        "run_at": datetime.now(tz=ZoneInfo(str(TIMEZONE))).isoformat(),
         "panels": manifest_payload.get("panels", []),
         "source_versions": manifest_payload.get("source_versions", {}),
         "input_files": manifest_payload.get("input_files", []),
@@ -145,9 +148,12 @@ def publish_intraday(
 
     staging_path = staging_dir / f"intraday_latest.{uuid.uuid4().hex}.tmp"
     staging_path.write_text(full_html, encoding="utf-8")
-    if "<html" not in full_html.lower():
+
+    # 完整性检查：验证落盘内容（捕获磁盘满 / 编码截断）
+    on_disk = staging_path.read_text(encoding="utf-8")
+    if "<html" not in on_disk.lower() or "</html>" not in on_disk.lower():
         staging_path.unlink(missing_ok=True)
-        raise ValueError("HTML 完整性检查失败")
+        raise ValueError("HTML 完整性检查失败：缺少 <html>/</html>")
 
     target = output_dir / "intraday_latest.html"
     os.replace(staging_path, target)
