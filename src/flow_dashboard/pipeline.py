@@ -59,10 +59,17 @@ def _run_intraday_inner(as_of: pd.Timestamp, output_dir: Path) -> Path:
     im_batch = fetch_futures_snapshot("IM", observed_at=as_of)
     spot_batch = fetch_snapshot(["sh000905", "sh000852"], observed_at=as_of)
 
-    failed = bool(ic_batch.failures or im_batch.failures or spot_batch.failures)
+    failed = bool(
+        ic_batch.failures or im_batch.failures or spot_batch.failures
+        or not ic_batch.quotes or not im_batch.quotes or not spot_batch.quotes
+    )
 
     if failed:
-        body = '<div class="stale">⚠️ 盘中行情数据不可得（stale）— 已保留上一份成功快照，不计算新基差</div>'
+        body = (
+            '<div class="stale">⚠️ 盘中行情数据不可得（stale）— '
+            "已保留上一份成功快照，不计算新基差。"
+            "请检查：新浪网络/IC/IM/现货 endpoint、runners.lock 占用、launchd 日志。</div>"
+        )
         full = build_html_skeleton(
             title="A 股流动性 — 盘中预览（stale）",
             body=body,

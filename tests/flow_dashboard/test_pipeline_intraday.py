@@ -86,3 +86,30 @@ def test_run_intraday_marks_stale_on_network_failure(monkeypatch, tmp_path):
     assert "stale" in html.lower() or "数据不可得" in html
     # 不应有基差计算结果
     assert "basis_points" not in html
+
+
+def test_run_intraday_marks_stale_on_silent_empty_success(monkeypatch, tmp_path):
+    """spec §7.4: 新浪返回 quotes=[] 且 failures=[]（schema 漂移等）→ 亦标 stale，不计算基差。"""
+    from flow_dashboard.data.sina_providers import QuoteBatch
+
+    def mock_empty_success(variety_or_codes, observed_at, timeout=8.0):
+        # Both signatures (futures variety + spot codes) return empty-but-no-failure
+        return QuoteBatch(
+            provider="sina", observed_at=observed_at,
+            received_at=pd.Timestamp.now(tz="Asia/Shanghai"),
+            parse_version="sina_v1", quotes=[], failures=[],
+        )
+
+    monkeypatch.setattr("flow_dashboard.pipeline.fetch_futures_snapshot", mock_empty_success)
+    monkeypatch.setattr("flow_dashboard.pipeline.fetch_snapshot", mock_empty_success)
+
+    output_dir = tmp_path / "x"
+    output_dir.mkdir()
+    intraday_path = run_intraday(
+        as_of=pd.Timestamp("2026-08-12 14:30", tz="Asia/Shanghai"),
+        output_dir=output_dir,
+        lock_path=output_dir / "runners.lock",
+    )
+    html = intraday_path.read_text()
+    assert "stale" in html.lower() or "数据不可得" in html
+    assert "basis_points" not in html
