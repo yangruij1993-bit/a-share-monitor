@@ -392,10 +392,32 @@ def _load_fund_nav_for_pipeline(codes, start, end, as_of):
     return load_fund_nav(codes=codes, start=start, end=end, as_of=as_of)
 
 
+def run_daily_finalize(
+    *,
+    data_date: str,
+    as_of: pd.Timestamp,
+    output_dir: Path | str | None = None,
+    lock_path: Path | str | None = None,
+    universe: list[str] | None = None,
+    force: bool = False,
+) -> Path:
+    """T+1 09:30+ 定稿 T 日报告。
+
+    与 eod_preview 共享渲染逻辑（_run_eod_preview_inner），但同日补跑会
+    通过 publish_archive.next_version_number 自动递增版本号；旧版本不删除。
+    """
+    output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
+    lock_path = Path(lock_path) if lock_path else RUNNERS_LOCK
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with acquire_runner_lock(lock_path):
+            return _run_eod_preview_inner(data_date, as_of, output_dir, universe)
+    except RunnerLockError:
+        log.warning("daily_finalize skipped_due_to_lock at %s", as_of)
+        return output_dir / f"report_{data_date}_v01.html"
+
+
 # 后续 task 实现：
-def run_daily_finalize(*, data_date, as_of, force: bool = False) -> str:
-    raise NotImplementedError
-
-
 def run_monthly(*, as_of, force: bool = False) -> str:
     raise NotImplementedError
