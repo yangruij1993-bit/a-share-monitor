@@ -188,12 +188,14 @@ def _run_eod_preview_inner(
         "panel-monthly-total",
         "panel-margin-exchange",
         "panel-basis",
+        "panel-margin-industry-heatmap",  # NEW (Phase C)
     ]
 
     from flow_dashboard.data.pit_labels import load_pit_labels
     from flow_dashboard.indicators.etf_flow import compute_etf_flow
     from flow_dashboard.indicators.margin import (
         aggregate_market_margin, compute_weekly_change,
+        aggregate_margin_by_industry, compute_net_margin_change,
     )
     from flow_dashboard.indicators.basis import compute_basis
     from flow_dashboard.render.panels_daily import (
@@ -209,6 +211,7 @@ def _run_eod_preview_inner(
     )
     from flow_dashboard.render.panels_margin import render_margin_exchange_panel
     from flow_dashboard.render.panels_basis import render_basis_panel
+    from flow_dashboard.render.panels_margin_industry import render_margin_industry_heatmap
     from flow_dashboard.render.assembly import publish_archive
 
     labels_path = Path("data/flow_dashboard/phase_a_evidence/etf_pit_labels.csv")
@@ -332,6 +335,24 @@ def _run_eod_preview_inner(
         layer="eod",
     ))
 
+    # Phase C 第 16 面板：行业热力图
+    margin_detail_df = _load_margin_detail_for_pipeline(start, end, as_of)
+    if not margin_detail_df.empty:
+        members = _load_sw_l1_members()
+        members_daily = _pivot_sw_l1_to_daily(members, start=start, end=end)
+        industry_agg = aggregate_margin_by_industry(margin_detail_df, members_daily)
+        industry_with_change = compute_net_margin_change(industry_agg, n_trading_days=5)
+        industry_coverage = 1.0 if not industry_with_change.empty else None
+    else:
+        industry_with_change = pd.DataFrame()
+        industry_coverage = None
+    panels.append(render_margin_industry_heatmap(
+        industry_with_change,
+        data_date=data_date,
+        coverage=industry_coverage,
+        last_success_at=as_of_format(as_of),
+    ))
+
     body = "\n".join(panels)
 
     title_suffix = " (partial)" if is_partial else ""
@@ -395,6 +416,21 @@ def _load_index_daily_for_pipeline(ts_code, start, end, as_of):
 def _load_fund_nav_for_pipeline(codes, start, end, as_of):
     from flow_dashboard.data.loaders import load_fund_nav
     return load_fund_nav(codes=codes, start=start, end=end, as_of=as_of)
+
+
+def _load_margin_detail_for_pipeline(start, end, as_of):
+    from flow_dashboard.data.loaders import load_margin_detail
+    return load_margin_detail(start=start, end=end, as_of=as_of)
+
+
+def _load_sw_l1_members():
+    from flow_dashboard.data.sw_l1_members import load_sw_l1_members
+    return load_sw_l1_members()
+
+
+def _pivot_sw_l1_to_daily(members, *, start, end):
+    from flow_dashboard.data.sw_l1_members import pivot_to_daily_membership
+    return pivot_to_daily_membership(members, start=start, end=end)
 
 
 def run_daily_finalize(
