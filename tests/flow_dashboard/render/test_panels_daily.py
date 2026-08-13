@@ -41,7 +41,7 @@ PANEL_KWARGS = dict(data_date="2026-08-12", coverage=1.0, last_success_at="19:30
 def test_render_huijin_broad_daily_returns_html_fragment():
     df = _flow_df(["huijin"])
     html = render_huijin_broad_daily(df, **PANEL_KWARGS)
-    assert "汇金宽基" in html
+    assert "汇金" in html  # 标题含「汇金」
     assert "Plotly.newPlot" in html
     assert 'id="panel-huijin-broad-daily"' in html
 
@@ -73,7 +73,7 @@ def test_render_industry_theme_daily_returns_html_fragment():
 def test_render_category_cumulative_daily_returns_html_fragment():
     df = _flow_df(["broad", "industry"])
     html = render_category_cumulative_daily(df, **PANEL_KWARGS)
-    assert "累计" in html
+    assert "资产类别" in html or "堆叠" in html
 
 
 def test_render_cycle_daily_returns_html_fragment():

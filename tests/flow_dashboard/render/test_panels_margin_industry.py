@@ -32,8 +32,8 @@ def test_render_margin_industry_heatmap_basic():
         data_date="2026-08-12",
         coverage=0.95, last_success_at="19:30",
     )
-    assert "行业热力图" in html
-    assert "Plotly.newPlot" in html
+    assert "申万 L1 行业资金" in html
+    assert "<table" in html  # 新版用 HTML 表格替代 Plotly heatmap
     assert 'id="panel-margin-industry-heatmap"' in html
 
 
@@ -47,7 +47,7 @@ def test_render_margin_industry_heatmap_empty_df_stale():
         coverage=None, last_success_at=None,
     )
     assert "stale" in html.lower() or "数据不可得" in html
-    assert "Plotly.newPlot" not in html
+    assert "<table" not in html
 
 
 def test_render_margin_industry_heatmap_coverage_none_stale():

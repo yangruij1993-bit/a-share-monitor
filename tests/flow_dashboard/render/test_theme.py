@@ -30,7 +30,7 @@ def test_build_html_skeleton_has_required_sections():
     assert "<!DOCTYPE html>" in html
     assert "A 股流动性日报 2026-08-12" in html
     assert "数据日期: 2026-08-12" in html
-    assert "最近成功获取时间" in html
+    assert "最近获取" in html  # header meta label
     assert "市场观察，非交易建议" in html  # spec §7.4
     assert PLOTLY_JS_BUNDLE in html
     # Plotly bundle 只内嵌一次

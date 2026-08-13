@@ -200,7 +200,7 @@ def dual_subplot_basis_panel(
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=False,
         subplot_titles=("IC 中证 500 基差", "IM 中证 1000 基差"),
-        vertical_spacing=0.15,
+        vertical_spacing=0.25,
     )
     for i, (label, df) in enumerate([("IC", ic_df), ("IM", im_df)], start=1):
         df = df.sort_values("trade_date")
@@ -218,10 +218,13 @@ def dual_subplot_basis_panel(
             "text": f"期货基差（IC/IM 逐合约）<br><span style='font-size:11px;color:#666'>数据日期: {data_date}</span>",
             "x": 0.5, "xanchor": "center",
         },
-        height=600,
+        height=720,
+        margin={"l": 60, "r": 30, "t": 100, "b": 60},
         plot_bgcolor=COLORS["background"],
         showlegend=False,
     )
+    # type="category" 防止 Plotly 把 "YYYY-MM-DD" 字符串识别为日期造成周末空白。
+    fig.update_xaxes(type="category")
     annotations = list(fig.layout.annotations or [])
     notes = []
     if coverage is not None:

@@ -212,6 +212,8 @@ def _run_eod_preview_inner(
     from flow_dashboard.render.panels_margin import render_margin_exchange_panel
     from flow_dashboard.render.panels_basis import render_basis_panel
     from flow_dashboard.render.panels_margin_industry import render_margin_industry_heatmap
+    from flow_dashboard.render.panels_summary import render_summary_section
+    from flow_dashboard.render.theme import render_section_band
     from flow_dashboard.render.assembly import publish_archive
 
     labels_path = Path("data/flow_dashboard/phase_a_evidence/etf_pit_labels.csv")
@@ -252,21 +254,26 @@ def _run_eod_preview_inner(
         if "unit_nav" not in merged.columns:
             merged["unit_nav"] = pd.NA
 
-    if not merged.empty:
-        if "dimension" not in merged.columns or "label" not in merged.columns:
+    # 先算 flow，再 merge labels。原因：merge labels 会让每个 (ts_code, trade_date)
+    # 复制成多行（每个 label 一行），此时 compute_etf_flow 的 groupby("ts_code").shift(1)
+    # 会在同日内跨 label 行错位 shift，导致大部分 diff=0（每个 ts_code 只有 1/N 的行能
+    # 拿到正确的 prev_share）。先算 flow → 每 (ts_code, trade_date) 唯一 → diff 正确；
+    # 然后再 merge labels 把行 explode 到各个 panel。
+    flow = compute_etf_flow(merged) if not merged.empty else merged
+
+    if not flow.empty:
+        if "dimension" not in flow.columns or "label" not in flow.columns:
             if not labels.empty:
                 # drop_duplicates() 保留每个 (ts_code, dimension, label) 一行；
                 # merge on ts_code 自然 explode — 同一 ETF 在多个面板下重复出现
                 # （per pit_labels.py docstring: 同一 ETF 可多维度多标签）
-                merged = merged.merge(
+                flow = flow.merge(
                     labels[["ts_code", "dimension", "label"]].drop_duplicates(),
                     on="ts_code", how="left",
                 )
             else:
-                merged["dimension"] = "ownership"
-                merged["label"] = "uncategorized"
-
-    flow = compute_etf_flow(merged) if not merged.empty else merged
+                flow["dimension"] = "ownership"
+                flow["label"] = "uncategorized"
 
     coverage = 1.0 if not flow.empty else None
     kwargs = dict(
@@ -275,17 +282,97 @@ def _run_eod_preview_inner(
         last_success_at=as_of.strftime("%Y-%m-%d %H:%M"),
     )
 
-    panels: list[str] = []
-    panels.append(render_huijin_broad_daily(flow, **kwargs))
-    panels.append(render_tech_tmt_daily(flow, **kwargs))
-    panels.append(render_total_market_daily(flow, **kwargs))
-    panels.append(render_broad_daily(flow, **kwargs))
-    panels.append(render_industry_theme_daily(flow, **kwargs))
-    panels.append(render_category_cumulative_daily(flow, **kwargs))
-    panels.append(render_cycle_daily(flow, **kwargs))
-    panels.append(render_cycle_cumulative_daily(flow, **kwargs))
-    panels.append(render_top15_etf_daily(flow, **kwargs))
+    # —— 章节结构：header → KPI 卡片 → §1 ETF → §2 两融 → §3 衍生品 → §4 周度/月度 ——
+    # 顺序与 ashare-flow-weekly 周报原型对齐，但保留我们日报的颗粒度。
+    body_parts: list[str] = []
 
+    # 两融数据（先算，KPI 卡片要用）
+    if not margin_df.empty:
+        m = aggregate_market_margin(margin_df, market_scope=None)
+        m = compute_weekly_change(m)
+    else:
+        m = pd.DataFrame()
+
+    # 基差数据（先算，KPI 卡片要用）
+    spot_df = pd.concat([spot_500, spot_1000], ignore_index=True)
+    if not ic_fut.empty and not im_fut.empty:
+        basis_ic = compute_basis(ic_fut, spot_df, spot_map={"IC": "000905.SH"},
+                                 max_quote_skew_seconds=None)
+        basis_im = compute_basis(im_fut, spot_df, spot_map={"IM": "000852.SH"},
+                                 max_quote_skew_seconds=None)
+    else:
+        basis_ic = pd.DataFrame()
+        basis_im = pd.DataFrame()
+
+    # 核心结论 KPI 卡片
+    body_parts.append(render_summary_section(
+        flow=flow, margin_agg=m, basis_ic=basis_ic, basis_im=basis_im,
+    ))
+
+    # §1 ETF 被动资金（9 个日度面板）
+    body_parts.append(render_section_band(
+        anchor_id="section-etf", num="01", title="ETF 被动资金 · 日度流量",
+        subtitle="国家队 / 宽基 / 科技 / 行业 / 周期",
+    ))
+    body_parts.append(render_huijin_broad_daily(flow, **kwargs))
+    body_parts.append(render_tech_tmt_daily(flow, **kwargs))
+    body_parts.append(render_total_market_daily(flow, **kwargs))
+    body_parts.append(render_broad_daily(flow, **kwargs))
+    body_parts.append(render_industry_theme_daily(flow, **kwargs))
+    body_parts.append(render_category_cumulative_daily(flow, **kwargs))
+    body_parts.append(render_cycle_daily(flow, **kwargs))
+    body_parts.append(render_cycle_cumulative_daily(flow, **kwargs))
+    body_parts.append(render_top15_etf_daily(flow, **kwargs))
+
+    # §2 杠杆资金（两融）：交易所 + 行业
+    body_parts.append(render_section_band(
+        anchor_id="section-margin", num="02", title="杠杆资金 · 两融",
+        subtitle="融资余额 / 行业净融资变化",
+    ))
+    m_kwargs = dict(
+        data_date=data_date,
+        coverage=1.0 if not m.empty else None,
+        last_success_at=as_of_format(as_of),
+        reconciliation_tolerance=None,
+    )
+    body_parts.append(render_margin_exchange_panel(m, **m_kwargs))
+
+    # Phase C 第 16 面板：行业 5 日净变化表
+    margin_detail_df = _load_margin_detail_for_pipeline(start, end, as_of)
+    if not margin_detail_df.empty:
+        members = _load_sw_l1_members()
+        members_daily = _pivot_sw_l1_to_daily(members, start=start, end=end)
+        industry_agg = aggregate_margin_by_industry(margin_detail_df, members_daily)
+        industry_with_change = compute_net_margin_change(industry_agg, n_trading_days=5)
+        industry_coverage = 1.0 if not industry_with_change.empty else None
+    else:
+        industry_with_change = pd.DataFrame()
+        industry_coverage = None
+    body_parts.append(render_margin_industry_heatmap(
+        industry_with_change,
+        data_date=data_date,
+        coverage=industry_coverage,
+        last_success_at=as_of_format(as_of),
+    ))
+
+    # §3 衍生品（期货基差）
+    body_parts.append(render_section_band(
+        anchor_id="section-basis", num="03", title="衍生品 · 期货基差",
+        subtitle="IC（中证 500）/ IM（中证 1000）",
+    ))
+    body_parts.append(render_basis_panel(
+        ic_df=basis_ic, im_df=basis_im,
+        data_date=data_date,
+        coverage=1.0 if not basis_ic.empty else None,
+        last_success_at=as_of_format(as_of),
+        layer="eod",
+    ))
+
+    # §4 周度/月度回顾
+    body_parts.append(render_section_band(
+        anchor_id="section-periodic", num="04", title="周度 / 月度回顾",
+        subtitle="ETF 资金中期趋势",
+    ))
     from flow_dashboard.indicators.flow_aggregation import (
         aggregate_weekly_flow, aggregate_monthly_flow,
     )
@@ -299,64 +386,16 @@ def _run_eod_preview_inner(
         coverage=0.95 if not weekly.empty else None,
         last_success_at=as_of.strftime("%Y-%m-%d %H:%M"),
     )
-    panels.append(render_broad_weekly(weekly, **w_kwargs))
-    panels.append(render_industry_theme_weekly(weekly, **w_kwargs))
-    panels.append(render_category_cumulative_weekly(weekly, **w_kwargs))
+    body_parts.append(render_broad_weekly(weekly, **w_kwargs))
+    body_parts.append(render_industry_theme_weekly(weekly, **w_kwargs))
+    body_parts.append(render_category_cumulative_weekly(weekly, **w_kwargs))
     if not flow.empty:
         monthly = aggregate_monthly_flow(flow)
     else:
         monthly = pd.DataFrame()
-    panels.append(render_monthly_total(monthly, **w_kwargs))
+    body_parts.append(render_monthly_total(monthly, **w_kwargs))
 
-    if not margin_df.empty:
-        m = aggregate_market_margin(margin_df, market_scope=None)
-        m = compute_weekly_change(m)
-    else:
-        m = pd.DataFrame()
-    m_kwargs = dict(
-        data_date=data_date,
-        coverage=1.0 if not m.empty else None,
-        last_success_at=as_of_format(as_of),
-        reconciliation_tolerance=None,
-    )
-    panels.append(render_margin_exchange_panel(m, **m_kwargs))
-
-    spot_df = pd.concat([spot_500, spot_1000], ignore_index=True)
-    if not ic_fut.empty and not im_fut.empty:
-        basis_ic = compute_basis(ic_fut, spot_df, spot_map={"IC": "000905.SH"},
-                                 max_quote_skew_seconds=None)
-        basis_im = compute_basis(im_fut, spot_df, spot_map={"IM": "000852.SH"},
-                                 max_quote_skew_seconds=None)
-    else:
-        basis_ic = pd.DataFrame()
-        basis_im = pd.DataFrame()
-    panels.append(render_basis_panel(
-        ic_df=basis_ic, im_df=basis_im,
-        data_date=data_date,
-        coverage=1.0 if not basis_ic.empty else None,
-        last_success_at=as_of_format(as_of),
-        layer="eod",
-    ))
-
-    # Phase C 第 16 面板：行业热力图
-    margin_detail_df = _load_margin_detail_for_pipeline(start, end, as_of)
-    if not margin_detail_df.empty:
-        members = _load_sw_l1_members()
-        members_daily = _pivot_sw_l1_to_daily(members, start=start, end=end)
-        industry_agg = aggregate_margin_by_industry(margin_detail_df, members_daily)
-        industry_with_change = compute_net_margin_change(industry_agg, n_trading_days=5)
-        industry_coverage = 1.0 if not industry_with_change.empty else None
-    else:
-        industry_with_change = pd.DataFrame()
-        industry_coverage = None
-    panels.append(render_margin_industry_heatmap(
-        industry_with_change,
-        data_date=data_date,
-        coverage=industry_coverage,
-        last_success_at=as_of_format(as_of),
-    ))
-
-    body = "\n".join(panels)
+    body = "\n".join(body_parts)
 
     title_suffix = " (partial)" if is_partial else ""
     full_html = build_html_skeleton(
@@ -367,6 +406,12 @@ def _run_eod_preview_inner(
         footer="市场观察，非交易建议。" + (
             " 本期为 partial：ETF 份额数据尚未完整入库。" if is_partial else ""
         ),
+        nav_sections=[
+            ("section-etf", "01 ETF 被动"),
+            ("section-margin", "02 杠杆资金"),
+            ("section-basis", "03 衍生品"),
+            ("section-periodic", "04 周度/月度"),
+        ],
     )
 
     _, archive_path, _, _ = publish_archive(

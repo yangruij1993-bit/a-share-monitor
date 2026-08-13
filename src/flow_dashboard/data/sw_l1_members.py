@@ -97,9 +97,13 @@ def pivot_to_daily_membership(
 
     df = members.copy()
     df["in_date"] = pd.to_datetime(df["in_date"])
-    df["out_date_resolved"] = pd.to_datetime(
-        df["out_date"].replace("", _FAR_FUTURE_DATE)
+    # 当前在册的股票 out_date 为 NaN 或空串；都视为"未退出"= FAR_FUTURE_DATE。
+    # 否则 pd.to_datetime(NaN) → NaT，比较 NaT >= d 返回 False，会把所有在册股票
+    # 从所有日期的成员表中排除，导致行业聚合在某个日期后突然变空。
+    out_clean = df["out_date"].astype("object").where(
+        df["out_date"].notna() & (df["out_date"] != ""), _FAR_FUTURE_DATE
     )
+    df["out_date_resolved"] = pd.to_datetime(out_clean)
 
     # 生成交易日序列（粗粒度：按日历日；后续 loader 用 margin_detail 的 trade_date 过滤）
     dates = pd.date_range(start=pd.Timestamp(start), end=pd.Timestamp(end), freq="D")

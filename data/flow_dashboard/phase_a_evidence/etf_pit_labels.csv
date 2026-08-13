@@ -20,3 +20,7 @@ ts_code,dimension,label,effective_from,effective_to,evidence_source,confirmed_at
 515170.SH,asset_scope,industry,2019-06-24,,基金合同,2026-08-13T00:00:00+08:00
 515220.SH,asset_scope,cycle,2019-03-15,,基金合同,2026-08-13T00:00:00+08:00
 515210.SH,asset_scope,cycle,2017-12-25,,基金合同,2026-08-13T00:00:00+08:00
+512010.SH,asset_scope,industry,2013-09-23,,基金合同,2026-08-13T00:00:00+08:00
+515030.SH,asset_scope,industry,2019-12-10,,基金合同,2026-08-13T00:00:00+08:00
+512400.SH,asset_scope,industry,2017-03-22,,基金合同,2026-08-13T00:00:00+08:00
+512200.SH,asset_scope,industry,2017-09-13,,基金合同,2026-08-13T00:00:00+08:00
