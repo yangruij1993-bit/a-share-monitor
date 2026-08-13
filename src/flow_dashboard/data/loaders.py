@@ -21,6 +21,7 @@ from flow_dashboard.data.schema import AUDIT_COLUMNS
 from flow_dashboard.data.tushare_providers import (
     pull_etf_share_size,
     pull_margin,
+    pull_margin_detail,
     pull_fut_daily,
     pull_index_daily,
     pull_fund_nav,
@@ -424,6 +425,81 @@ def _annotate_fund_nav(
     df["fetched_at"] = fetched_at
     df["source"] = "tushare"
     df["source_version"] = "fund_nav_v1"
+    df["is_stale"] = False
+    df["quality_flags"] = ""
+    return df
+
+
+# ============ 个股两融明细（Phase C：行业热力图源数据） ============
+
+def load_margin_detail(
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    as_of: pd.Timestamp,
+    cache_dir: Path | str | None = None,
+    use_cache: bool = True,
+) -> pd.DataFrame:
+    """加载个股两融明细，按 trade_date 增量缓存，PIT 过滤。
+
+    每个交易日单独缓存一个 parquet（`margin_detail_YYYYMMDD.parquet`），
+    失败一天不影响其他日。
+    """
+    cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    fetched_at = pd.Timestamp.now(tz=TIMEZONE)
+    out_frames: list[pd.DataFrame] = []
+
+    # 遍历日历日；margin_detail 接口按 trade_date 拉单日数据，
+    # 周末/节假日 Tushare 返回空 df，loader 自然过滤
+    for d in pd.date_range(start=pd.Timestamp(start), end=pd.Timestamp(end)):
+        cache_path = cache_dir / f"margin_detail_{d.strftime('%Y%m%d')}.parquet"
+        if use_cache and cache_path.exists():
+            cached = pd.read_parquet(cache_path)
+            cached = cached[cached["available_at"] <= as_of]
+            if not cached.empty:
+                out_frames.append(cached)
+                continue
+
+        fresh = _pull_margin_detail_for_load(d.strftime("%Y%m%d"))
+        if fresh.empty:
+            continue
+        fresh = _annotate_margin_detail(fresh, fetched_at)
+        fresh = fresh[fresh["available_at"] <= as_of]
+        if use_cache:
+            fresh.to_parquet(cache_path, index=False)
+        if not fresh.empty:
+            out_frames.append(fresh)
+
+    if not out_frames:
+        return _empty_with_audit()
+    return pd.concat(out_frames, ignore_index=True)
+
+
+def _pull_margin_detail_for_load(trade_date: str) -> pd.DataFrame:
+    """Thin wrapper around provider for monkeypatch in tests."""
+    return pull_margin_detail(trade_date=trade_date)
+
+
+def _annotate_margin_detail(
+    df: pd.DataFrame, fetched_at: pd.Timestamp
+) -> pd.DataFrame:
+    """添加审计列。available_at = trade_date 当日 19:00。"""
+    if df.empty:
+        return _empty_with_audit()
+    df = df.copy()
+    df["source_date"] = df["trade_date"].dt.strftime("%Y-%m-%d")
+    df["first_observed_at"] = fetched_at
+    df["available_at"] = df["trade_date"].apply(
+        lambda d: pd.Timestamp(
+            year=d.year, month=d.month, day=d.day,
+            hour=19, minute=0, second=0, tz=TIMEZONE
+        )
+    )
+    df["fetched_at"] = fetched_at
+    df["source"] = "tushare"
+    df["source_version"] = "margin_detail_v1"
     df["is_stale"] = False
     df["quality_flags"] = ""
     return df

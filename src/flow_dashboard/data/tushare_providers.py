@@ -280,3 +280,31 @@ def pull_index_member(index_code: str) -> pd.DataFrame:
             columns=["index_code", "con_code", "in_date", "out_date", "is_new"]
         )
     return df[["index_code", "con_code", "in_date", "out_date", "is_new"]]
+
+
+# ============================================================
+# Task 2: margin_detail（个股两融明细）
+# ============================================================
+
+def pull_margin_detail(trade_date: str) -> pd.DataFrame:
+    """拉取个股两融明细（单日）。
+
+    Args:
+        trade_date: 'YYYYMMDD' 字符串
+
+    Returns columns: trade_date, ts_code, rzye, rqye, rzmre, rqyl, rzche, rqchl, rqmcl, rzrqye
+                     （单位：元；rzye=融资余额, rqye=融券余额, rzmre=融资买入额,
+                       rqyl=融券卖出额, rzche=融资偿还额, rqchl=融券偿还额）
+    """
+    pro = get_pro_api()
+    df = pro.margin_detail(trade_date=trade_date)
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "trade_date", "ts_code", "rzye", "rqye", "rzmre", "rqyl",
+        ])
+    df = df.copy()
+    df["trade_date"] = _parse_mixed_date(df["trade_date"])
+    for col in ("rzye", "rqye", "rzmre", "rqyl", "rzche", "rqchl", "rqmcl", "rzrqye"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
