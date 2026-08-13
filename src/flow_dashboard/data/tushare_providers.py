@@ -259,3 +259,24 @@ def pull_index_daily(
     if "pct_chg" in df.columns:
         df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce")
     return df.drop_duplicates(subset=["ts_code", "trade_date"]).reset_index(drop=True)
+
+
+# ============================================================
+# Task 1: index_member (SW L1 成分股)
+# ============================================================
+
+def pull_index_member(index_code: str) -> pd.DataFrame:
+    """拉取指数成分股（含历史进出，PIT 字段）。
+
+    Args:
+        index_code: 如 '801010.SI'（申万一级农林牧渔）
+
+    Returns columns: index_code, con_code, in_date, out_date, is_new
+    """
+    pro = get_pro_api()
+    df = pro.index_member(index_code=index_code)
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=["index_code", "con_code", "in_date", "out_date", "is_new"]
+        )
+    return df[["index_code", "con_code", "in_date", "out_date", "is_new"]]
