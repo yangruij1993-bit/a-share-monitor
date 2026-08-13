@@ -63,8 +63,8 @@ def test_load_etf_share_writes_audit_columns(monkeypatch, tmp_path):
 
 
 def test_load_etf_share_cache_hit_skips_network(monkeypatch, tmp_path):
-    """第二次 load 应命中缓存，不调 provider。"""
-    df = _mock_etf_provider()
+    """第二次 load，cache 内 trade_date 已覆盖到 end-1day → 命中缓存不调 provider。"""
+    df = _mock_etf_provider()  # 最新 trade_date = 2026-08-11
     call_count = {"n": 0}
 
     def mock_pull(codes, start, end):
@@ -75,15 +75,54 @@ def test_load_etf_share_cache_hit_skips_network(monkeypatch, tmp_path):
         "flow_dashboard.data.loaders._pull_etf_share_for_load", mock_pull
     )
     as_of = pd.Timestamp("2026-08-12 09:00", tz="Asia/Shanghai")
+    # end=2026-08-12 → end-1day=2026-08-11；cache_max=2026-08-11 不 stale
     load_etf_share(
         codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
-        end=pd.Timestamp("2026-08-31"), as_of=as_of, cache_dir=tmp_path,
+        end=pd.Timestamp("2026-08-12"), as_of=as_of, cache_dir=tmp_path,
     )
     load_etf_share(
         codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
-        end=pd.Timestamp("2026-08-31"), as_of=as_of, cache_dir=tmp_path,
+        end=pd.Timestamp("2026-08-12"), as_of=as_of, cache_dir=tmp_path,
     )
     assert call_count["n"] == 1
+
+
+def test_load_etf_share_stale_cache_refetches(monkeypatch, tmp_path):
+    """cache_max 落后于 end-1day → 视为 stale，第二次 load 重拉。"""
+    # 模拟 provider：第一次返回旧数据，第二次返回新数据
+    state = {"call": 0}
+
+    def mock_pull(codes, start, end):
+        state["call"] += 1
+        if state["call"] == 1:
+            return pd.DataFrame([
+                {"ts_code": "510050.SH", "trade_date": pd.Timestamp("2026-08-07"),
+                 "total_share": 100.0, "total_size": 100.0, "exchange": "SSE",
+                 "etf_name": "50ETF"},
+            ])
+        return pd.DataFrame([
+            {"ts_code": "510050.SH", "trade_date": pd.Timestamp("2026-08-11"),
+             "total_share": 110.0, "total_size": 110.0, "exchange": "SSE",
+             "etf_name": "50ETF"},
+        ])
+
+    monkeypatch.setattr(
+        "flow_dashboard.data.loaders._pull_etf_share_for_load", mock_pull
+    )
+    as_of = pd.Timestamp("2026-08-13 09:00", tz="Asia/Shanghai")
+    # 第一次：cache 为空，拉到 8-7
+    load_etf_share(
+        codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
+        end=pd.Timestamp("2026-08-13"), as_of=as_of, cache_dir=tmp_path,
+    )
+    # 第二次：cache_max=8-7 < end-1day=8-12 → stale → 重拉
+    out = load_etf_share(
+        codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
+        end=pd.Timestamp("2026-08-13"), as_of=as_of, cache_dir=tmp_path,
+    )
+    assert state["call"] == 2  # 重拉一次
+    # 合并后最新日期应为 8-11
+    assert out["trade_date"].max() == pd.Timestamp("2026-08-11")
 
 
 def test_load_etf_share_use_cache_false_bypasses(monkeypatch, tmp_path):

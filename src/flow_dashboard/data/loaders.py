@@ -55,7 +55,12 @@ def load_etf_share(
     cache_dir: Path | str | None = None,
     use_cache: bool = True,
 ) -> pd.DataFrame:
-    """加载 ETF 份额，落盘 parquet 增量缓存，PIT 过滤。"""
+    """加载 ETF 份额，落盘 parquet 增量缓存，PIT 过滤。
+
+    Stale 检测：cache 命中后比对每个 code 的最新 trade_date 与 end。
+    若落后于 end-1 calendar day（Tushare T+1 发布，周末边界自然兼容），
+    视为 stale 并加入重拉列表。
+    """
     cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / "etf_share.parquet"
@@ -67,10 +72,12 @@ def load_etf_share(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         cached_codes = set(cached["ts_code"].unique()) if not cached.empty else set()
         missing_codes = [c for c in codes if c not in cached_codes]
-        if not missing_codes:
+        stale_codes = _stale_codes(cached, codes, end)
+        codes_to_refresh = missing_codes + stale_codes
+        if not codes_to_refresh:
             return _filter_range(cached, start, end)
 
-        fresh = _pull_etf_share_for_load(missing_codes, start, end)
+        fresh = _pull_etf_share_for_load(codes_to_refresh, start, end)
         fresh = _annotate_etf_share(fresh, fetched_at)
         # Apply PIT filter to fresh data
         fresh = fresh[fresh["available_at"] <= pd.Timestamp(as_of)]
@@ -90,6 +97,44 @@ def load_etf_share(
     if use_cache:
         fresh.to_parquet(cache_path, index=False)
     return fresh
+
+
+def _stale_codes(
+    cached: pd.DataFrame,
+    codes: list[str],
+    end: pd.Timestamp,
+    date_col: str = "trade_date",
+) -> list[str]:
+    """识别 cached 中 date_col 落后于 end-1day 的 code（需重拉）。
+
+    用于多 code 共享 cache 的 loader（etf_share / fund_nav）。
+    """
+    if cached.empty or "ts_code" not in cached.columns or date_col not in cached.columns:
+        return []
+    threshold = (pd.Timestamp(end) - pd.Timedelta(days=1)).normalize()
+    stale = []
+    for c in codes:
+        sub = cached[cached["ts_code"] == c]
+        if sub.empty:
+            continue
+        code_max = sub[date_col].max()
+        if pd.isna(code_max) or pd.Timestamp(code_max).normalize() < threshold:
+            stale.append(c)
+    return stale
+
+
+def _stale_single(
+    cached: pd.DataFrame, end: pd.Timestamp, date_col: str = "trade_date"
+) -> bool:
+    """单 code per file loader 用（fut_daily / index_daily）。
+
+    返回 True 表示 cache 落后，需重拉。
+    """
+    if cached.empty or date_col not in cached.columns:
+        return True
+    threshold = (pd.Timestamp(end) - pd.Timedelta(days=1)).normalize()
+    cached_max = pd.Timestamp(cached[date_col].max()).normalize()
+    return cached_max < threshold
 
 
 def _pull_etf_share_for_load(
@@ -238,7 +283,7 @@ def load_fut_daily(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         if not cached.empty and "ts_code" in cached.columns:
             cached_codes = set(cached["ts_code"].unique())
-            if ts_code in cached_codes:
+            if ts_code in cached_codes and not _stale_single(cached, end):
                 return _filter_range(cached, start, end)
 
     fresh = pull_fut_daily(
@@ -305,7 +350,7 @@ def load_index_daily(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         if not cached.empty and "ts_code" in cached.columns:
             cached_codes = set(cached["ts_code"].unique())
-            if ts_code in cached_codes:
+            if ts_code in cached_codes and not _stale_single(cached, end):
                 return _filter_range(cached, start, end)
 
     fresh = pull_index_daily(
@@ -372,10 +417,12 @@ def load_fund_nav(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         cached_codes = set(cached["ts_code"].unique()) if not cached.empty else set()
         missing_codes = [c for c in codes if c not in cached_codes]
-        if not missing_codes:
+        stale_codes = _stale_codes(cached, codes, end, date_col="nav_date")
+        codes_to_refresh = missing_codes + stale_codes
+        if not codes_to_refresh:
             return _filter_range(cached, start, end)
         fresh = pull_fund_nav(
-            codes=missing_codes,
+            codes=codes_to_refresh,
             start_date=start.strftime("%Y%m%d"),
             end_date=end.strftime("%Y%m%d"),
         )
