@@ -4,7 +4,7 @@
 **Run date:** 2026-08-12
 **Author:** Phase B 自动生成 + 人工 review
 
-## 1. 交付物清单（15 面板 + 数据健康页）
+## 1. 交付物清单（16 面板 + 数据健康页）
 
 | 面板 ID | 标题 | 文件 | 状态 |
 |---|---|---|---|
@@ -23,6 +23,7 @@
 | 13. panel-monthly-total | 月度合计 | 同上 | ✓ |
 | 14. panel-margin-exchange | 分交易所融资余额与周变化 | panels_margin.py | ✓ |
 | 15. panel-basis | 期货基差 — IC/IM 双 subplot | panels_basis.py | ✓ |
+| 16. panel-margin-industry-heatmap | 个股两融行业热力图（5 日净融资变化） | panels_margin_industry.py | ✓（Phase C） |
 | 健康页 | 数据健康（覆盖率矩阵 + 源状态 + 未冻结项） | panels_health.py | ✓ |
 
 面板 ID 已对照 `src/flow_dashboard/render/panels_*.py` 中的 `div_id` 与
@@ -97,12 +98,19 @@ spec §3.5：性能预算由 Phase A 基准测试后冻结；本节即完成该�
 ## 6. 测试与代码状态
 
 - 全部 Phase A 测试通过：36 个
-- 全部 Phase B 测试通过：**71 个**（运行
-  `python3 -m pytest tests/flow_dashboard/ -m "not live" --collect-only -q | tail -3`
-  = `107/124 tests collected (17 deselected)`；107 - 36 = 71）
+- 全部 Phase B 测试通过：71 个
+- 全部 Phase C（增量）测试通过：**25 个**
+  - `test_sw_l1_members.py`：6（SW L1 成分股 PIT loader + pivot）
+  - `test_load_margin_detail.py`：4（个股两融明细 loader）
+  - `test_margin_industry.py`：7（行业聚合 + 5 日净融资变化）
+  - `test_figures.py::test_industry_heatmap_panel_*`：4（heatmap figure factory）
+  - `test_panels_margin_industry.py`：3（heatmap 面板 renderer）
+  - `test_pipeline_eod_preview.py::test_run_eod_preview_includes_industry_heatmap_panel`：1
 - Red Line 1 端到端守护：1 个（`tests/flow_dashboard/test_suffix_invariance_e2e.py::test_suffix_invariance_e2e`）
-- 合计 **107 passed, 17 deselected**（live 测试因 token 未设置全部 SKIP）
-- live 测试：17 collected, **17 skipped**（`ASHARE_FLOW_TUSHARE_TOKEN` 未设置）
+- 合计 **132 passed, 17 deselected**（运行
+  `python3 -m pytest tests/flow_dashboard/ -m "not live" --collect-only -q | tail -3`
+  = `132/149 tests collected (17 deselected)`）
+- live 测试：17 collected, **17 skipped**（`ASHARE_FLOW_TUSHARE_TOKEN` 未在 CI 设置）
 
 ## 7. 已知风险
 
@@ -135,3 +143,55 @@ Phase C（个股两融行业热力、公募代理指标、港股 ETF）可在以
    远低于 spec §3.5 暂定阈值。
 
 **结论**：条件 1、2、4 已满足；条件 3 需要在 Phase C 启动首日下载港股 ETF CSV（5 分钟手工动作）。
+
+## 9. Phase C 增量（2026-08-13）
+
+### 9.1 已完成
+
+- **第 16 面板：`panel-margin-industry-heatmap`** — 个股两融按申万一级 L1 行业聚合，
+  颜色编码净融资余额 5 日变化（正红负绿，0 白）。PIT 关键：行业归属用当日成分表，
+  不用"今天的归属"回填历史。
+- **新 data layer**：
+  - `load_sw_l1_members`（28 行业成分股 PIT 表，parquet 长缓存；`pivot_to_daily_membership` 按 `in_date/out_date` 展开）
+  - `load_margin_detail`（个股两融明细，per-day parquet 缓存；`available_at = trade_date 19:00 Asia/Shanghai`）
+- **新 indicator**：
+  - `aggregate_margin_by_industry`：margin_detail × daily_members 内连接 → 行业聚合（含 `net_margin`、`stock_count`）
+  - `compute_net_margin_change`：按 industry_code 分组 shift(5) 得 `net_margin_5d_change`
+- **新 figure / renderer**：
+  - `industry_heatmap_panel`：Plotly Heatmap，green(0,128,0)→white→red(255,0,0)，`zmid=0`，元→亿元
+  - `render_margin_industry_heatmap`：早期 stale fallback（df 空 / coverage=None）
+- **Pipeline 接入**：`_run_eod_preview_inner` 第 16 面板已加；manifest `panels` 数组 16 项对齐。
+
+### 9.2 已知限制（待 Phase D）
+
+- **个股两融 ~3 天滞后**：Tushare `margin_detail` 通常 T+2 至 T+3 才能拿到完整数据，
+  最近 2-3 个交易日的热力图格多为 NaN（pivot 后显示空白）。
+- **行业覆盖不全**：Tushare `margin_detail` 每日返回约 4400 只两融标的，
+  28 个申万 L1 行业中实际有数据的一般为 13-15 个（大中型行业）。
+  小行业（如综合、商贸零售、纺织服饰）可能整列空白。
+- **日历日 vs 交易日**：`pivot_to_daily_membership` 当前按日历日展开（含周末）；
+  margin_detail 接口周末返回空 df，loader 自然过滤。Phase D 可切交易日历。
+- **申万一级成分股缓存无 TTL**：`sw_l1_members.parquet` 一旦写入就一直使用，
+  需手工 `load_sw_l1_members(use_cache=False)` 刷新（半年一次即可，成分股变动很少）。
+- **`industry_coverage` 简化为 1.0/None**：当前只要有聚合行就标 100%；
+  Phase D 可改为按 stock_count 或行业覆盖比例计算。
+
+### 9.3 Phase C 端到端验证（2026-08-13）
+
+```
+$ ASHARE_FLOW_TUSHARE_TOKEN=$TUSHARE_TOKEN \
+  python3 scripts/flow_dashboard/run_eod_preview.py --data-date 2026-08-13
+eod_preview published: output/ashare_flow_daily/report_2026-08-13_v01.html
+```
+
+- manifest `panels` 数组：16 项（含 `panel-margin-industry-heatmap`）✓
+- HTML 含 16 个 `panel-title` ✓
+- 热力图渲染：15 行业 × 28 交易日，色域 ±3.5 亿元 ✓
+
+### 9.4 Phase D 候选
+
+- 公募基金主动权益代理指标（数据源 `fund_basic.invest_type`，规则见 §8 条件 2）。
+- 港股 ETF 资金流（需手工下载港交所 CSV，5 分钟；§8 条件 3）。
+- 行业热力图增加"按板块聚合"切换（28 L1 → 5 大板块）。
+- 热力图行从日历日切换为交易日（接 `trade_cal`）。
+- 个股两融明细纳入健康页覆盖率矩阵。
