@@ -33,6 +33,10 @@ SW_L1_INDUSTRIES: tuple[tuple[str, str], ...] = (
     ("801970", "环保"),
 )
 
+# Tushare 用空字符串表示"当前在册"；pivot 时替换为远未来日期以通过 <= 过滤。
+# 选 2099-12-31 避免与任何真实 out_date 冲突。
+_FAR_FUTURE_DATE = "20991231"
+
 
 def load_sw_l1_members(
     *,
@@ -93,9 +97,8 @@ def pivot_to_daily_membership(
 
     df = members.copy()
     df["in_date"] = pd.to_datetime(df["in_date"])
-    # out_date 为空表示当前在册，用 end+1day 占位
     df["out_date_resolved"] = pd.to_datetime(
-        df["out_date"].replace("", "20991231")
+        df["out_date"].replace("", _FAR_FUTURE_DATE)
     )
 
     # 生成交易日序列（粗粒度：按日历日；后续 loader 用 margin_detail 的 trade_date 过滤）
