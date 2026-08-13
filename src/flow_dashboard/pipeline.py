@@ -255,8 +255,11 @@ def _run_eod_preview_inner(
     if not merged.empty:
         if "dimension" not in merged.columns or "label" not in merged.columns:
             if not labels.empty:
+                # drop_duplicates() 保留每个 (ts_code, dimension, label) 一行；
+                # merge on ts_code 自然 explode — 同一 ETF 在多个面板下重复出现
+                # （per pit_labels.py docstring: 同一 ETF 可多维度多标签）
                 merged = merged.merge(
-                    labels[["ts_code", "dimension", "label"]].drop_duplicates("ts_code"),
+                    labels[["ts_code", "dimension", "label"]].drop_duplicates(),
                     on="ts_code", how="left",
                 )
             else:

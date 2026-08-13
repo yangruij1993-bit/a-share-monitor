@@ -27,20 +27,46 @@ def bar_flow_panel(
     coverage: float | None = None,
     last_success_at: str | None = None,
 ) -> go.Figure:
-    """日度流量柱图（正绿负红）。"""
+    """日度流量柱图（正绿负红）。
+
+    多只 ETF（ts_code 唯一值 > 1）时按 ts_code 拆 trace 并堆叠（barmode="relative"），
+    每个 trace 的 hovertemplate 露 ts_code 与数值；单只或无 ts_code 时保持原聚合行为。
+    """
     df = df.sort_values("trade_date")
     fig = go.Figure()
-    flows_yi = _to_yi(df["etf_estimated_flow_cny"].tolist())
-    colors = [
-        COLORS["positive_flow"] if (v is not None and v >= 0) else COLORS["negative_flow"]
-        for v in flows_yi
-    ]
-    fig.add_trace(go.Bar(
-        x=df["trade_date"].astype(str).tolist(),
-        y=flows_yi,
-        marker_color=colors,
-        showlegend=False,
-    ))
+
+    has_multi_codes = "ts_code" in df.columns and df["ts_code"].nunique(dropna=True) > 1
+
+    if has_multi_codes:
+        for ts_code, sub in df.groupby("ts_code", sort=False):
+            sub = sub.sort_values("trade_date")
+            flows_yi = _to_yi(sub["etf_estimated_flow_cny"].tolist())
+            colors = [
+                COLORS["positive_flow"] if (v is not None and v >= 0) else COLORS["negative_flow"]
+                for v in flows_yi
+            ]
+            fig.add_trace(go.Bar(
+                name=str(ts_code),
+                x=sub["trade_date"].astype(str).tolist(),
+                y=flows_yi,
+                marker_color=colors,
+                hovertemplate=f"{ts_code}<br>%{{x}}<br>%{{y:.2f}} 亿元<extra></extra>",
+            ))
+        fig.update_layout(barmode="relative")
+    else:
+        flows_yi = _to_yi(df["etf_estimated_flow_cny"].tolist())
+        colors = [
+            COLORS["positive_flow"] if (v is not None and v >= 0) else COLORS["negative_flow"]
+            for v in flows_yi
+        ]
+        fig.add_trace(go.Bar(
+            x=df["trade_date"].astype(str).tolist(),
+            y=flows_yi,
+            marker_color=colors,
+            showlegend=False,
+            hovertemplate="%{x}<br>%{y:.2f} 亿元<extra></extra>",
+        ))
+
     return apply_theme(
         fig, title=title, y_title="亿元", data_date=data_date,
         coverage=coverage, last_success_at=last_success_at, unit="亿元",

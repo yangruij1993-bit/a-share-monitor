@@ -34,6 +34,29 @@ def test_bar_flow_panel_returns_figure_with_color_split():
     assert len(colors) == 2  # 一正一负
 
 
+def test_bar_flow_panel_stacks_by_ts_code_when_multi():
+    """多只 ETF 时按 ts_code 拆 trace 并堆叠，hovertemplate 露 ts_code。"""
+    df = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2026-08-07"), "ts_code": "510050.SH",
+         "label": "huijin", "etf_estimated_flow_cny": 1e9},
+        {"trade_date": pd.Timestamp("2026-08-07"), "ts_code": "510300.SH",
+         "label": "huijin", "etf_estimated_flow_cny": -0.5e9},
+        {"trade_date": pd.Timestamp("2026-08-08"), "ts_code": "510050.SH",
+         "label": "huijin", "etf_estimated_flow_cny": 1.5e9},
+        {"trade_date": pd.Timestamp("2026-08-08"), "ts_code": "510300.SH",
+         "label": "huijin", "etf_estimated_flow_cny": 0.5e9},
+    ])
+    fig = bar_flow_panel(df, title="汇金宽基日度流量", data_date="2026-08-13")
+    # 2 个 ts_code → 2 个 trace
+    assert len(fig.data) == 2
+    # 堆叠模式
+    assert fig.layout.barmode == "relative"
+    # 每个 trace 的 name 是 ts_code，hovertemplate 含 ts_code
+    names = [t.name for t in fig.data]
+    assert set(names) == {"510050.SH", "510300.SH"}
+    assert "510050.SH" in fig.data[0].hovertemplate
+
+
 def test_line_cumulative_panel_y_axis_in_yi():
     df = pd.DataFrame([
         {"trade_date": pd.Timestamp("2026-08-07"), "cumulative_flow_cny": 1e9},
