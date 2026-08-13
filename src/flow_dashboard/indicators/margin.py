@@ -131,3 +131,38 @@ def aggregate_margin_by_industry(
     return agg.sort_values(
         ["trade_date", "industry_code"]
     ).reset_index(drop=True)
+
+
+def compute_net_margin_change(
+    df: pd.DataFrame,
+    *,
+    n_trading_days: int = 5,
+) -> pd.DataFrame:
+    """按 industry_code 分组，算 net_margin 的 N 日变化。
+
+    Args:
+        df: aggregate_margin_by_industry 的输出
+        n_trading_days: 滑动窗口（默认 5 个交易日）
+
+    Returns:
+        df 增加 net_margin_5d_change 列（前 N-1 日为 NaN）
+    """
+    if df.empty:
+        out = df.copy()
+        out["net_margin_5d_change"] = pd.Series(dtype=float)
+        return out
+
+    df = df.sort_values(
+        ["industry_code", "trade_date"]
+    ).reset_index(drop=True).copy()
+
+    out_frames: list[pd.DataFrame] = []
+    for industry_code, group in df.groupby("industry_code", sort=False):
+        group = group.sort_values("trade_date").reset_index(drop=True).copy()
+        group["net_margin_5d_change"] = (
+            group["net_margin"] - group["net_margin"].shift(n_trading_days)
+        )
+        out_frames.append(group)
+    return pd.concat(out_frames, ignore_index=True).sort_values(
+        ["trade_date", "industry_code"]
+    ).reset_index(drop=True)

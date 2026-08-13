@@ -5,7 +5,10 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from flow_dashboard.indicators.margin import aggregate_margin_by_industry
+from flow_dashboard.indicators.margin import (
+    aggregate_margin_by_industry,
+    compute_net_margin_change,
+)
 
 
 def _margin_df():
@@ -98,3 +101,55 @@ def test_aggregate_margin_by_industry_drops_stocks_without_industry():
     )
     out = aggregate_margin_by_industry(margin, members)
     assert out.empty
+
+
+def _industry_df():
+    """1 行业 × 7 天的聚合表（用于测 5 日变化）。"""
+    rows = []
+    base = pd.Timestamp("2026-08-01")
+    for i in range(7):
+        rows.append({
+            "trade_date": base + pd.Timedelta(days=i),
+            "industry_code": "801770",
+            "industry_name": "银行",
+            "rzye": 1e9 + i * 1e8,  # 每日 +1e8
+            "rqye": 1e8 + i * 1e7,
+            "net_margin": (1e9 + i * 1e8) - (1e8 + i * 1e7),
+            "stock_count": 10,
+        })
+    return pd.DataFrame(rows)
+
+
+def test_compute_net_margin_change_5d():
+    df = compute_net_margin_change(_industry_df(), n_trading_days=5)
+    # 前 5 天变化为 NaN（无 t-5）；第 6、7 天有变化
+    assert df["net_margin_5d_change"].isna().sum() == 5
+    # 第 7 天（i=6）：net_margin(t) - net_margin(t-5)
+    # net_margin(t=6) = (1.6e9 - 1.6e8) = 1.44e9
+    # net_margin(t-5=1) = (1.1e9 - 1.1e8) = 0.99e9
+    # 期望变化 = 1.44e9 - 0.99e9 = 4.5e8
+    row_7 = df[df["trade_date"] == pd.Timestamp("2026-08-07")].iloc[0]
+    expected = 4.5e8
+    assert abs(row_7["net_margin_5d_change"] - expected) < 1.0  # 浮点容差
+
+
+def test_compute_net_margin_change_per_industry():
+    """多行业时各自独立算 5 日变化。"""
+    df_a = _industry_df()
+    df_b = _industry_df().copy()
+    df_b["industry_code"] = "801780"
+    df_b["industry_name"] = "非银金融"
+    df = pd.concat([df_a, df_b], ignore_index=True)
+    out = compute_net_margin_change(df, n_trading_days=5)
+    # 每个行业 7 行 × 5 NaN = 10 NaN
+    assert out["net_margin_5d_change"].isna().sum() == 10
+
+
+def test_compute_net_margin_change_empty_df():
+    empty = pd.DataFrame(columns=[
+        "trade_date", "industry_code", "industry_name",
+        "rzye", "rqye", "net_margin", "stock_count",
+    ])
+    out = compute_net_margin_change(empty, n_trading_days=5)
+    assert out.empty
+    assert "net_margin_5d_change" in out.columns
