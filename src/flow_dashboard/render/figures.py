@@ -203,3 +203,67 @@ def dual_subplot_basis_panel(
         })
     fig.update_layout(annotations=annotations)
     return fig
+
+
+def industry_heatmap_panel(
+    df: pd.DataFrame,
+    *,
+    title: str,
+    data_date: str,
+    coverage: float | None = None,
+    last_success_at: str | None = None,
+    n_trading_days: int = 30,
+) -> go.Figure:
+    """行业 × 交易日 热力图（净融资 N 日变化，正红负绿）。
+
+    Args:
+        df: aggregate_margin_by_industry + compute_net_margin_change 输出，
+            必须含 trade_date, industry_name, net_margin_5d_change
+        n_trading_days: 显示最近 N 个交易日（默认 30）
+    """
+    if df.empty:
+        return apply_theme(
+            go.Figure(), title=title, y_title="行业",
+            data_date=data_date, coverage=coverage,
+            last_success_at=last_success_at, unit="亿元",
+        )
+
+    df = df.copy()
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+    # 取最近 N 个交易日
+    recent_dates = sorted(df["trade_date"].unique())[-n_trading_days:]
+    df = df[df["trade_date"].isin(recent_dates)]
+
+    # 构造矩阵：行=行业（按名称排序），列=日期
+    pivot = df.pivot_table(
+        index="industry_name",
+        columns="trade_date",
+        values="net_margin_5d_change",
+        aggfunc="first",
+    )
+    pivot = pivot.reindex(sorted(pivot.index))  # 行业名排序
+    pivot = pivot[sorted(pivot.columns)]  # 日期排序
+
+    x = [d.strftime("%Y-%m-%d") for d in pivot.columns]
+    y = list(pivot.index)
+    # 元 → 亿元（保留 NaN）
+    z = [[v / _CNY_TO_YI if pd.notna(v) else None for v in row]
+         for row in pivot.values]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z, x=x, y=y,
+        colorscale=[
+            [0.0, "rgb(0, 128, 0)"],    # 负值=绿
+            [0.5, "rgb(255, 255, 255)"],  # 0=白
+            [1.0, "rgb(255, 0, 0)"],     # 正值=红
+        ],
+        zmid=0,
+        colorbar={"title": "亿元"},
+        hovertemplate="%{y}<br>%{x}<br>%{z:.2f} 亿元<extra></extra>",
+    ))
+
+    return apply_theme(
+        fig, title=title, y_title="申万一级行业",
+        data_date=data_date, coverage=coverage,
+        last_success_at=last_success_at, unit="亿元",
+    )

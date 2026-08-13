@@ -10,6 +10,7 @@ from flow_dashboard.render.figures import (
     horizontal_topn_panel,
     multi_line_period_panel,
     dual_subplot_basis_panel,
+    industry_heatmap_panel,
 )
 
 
@@ -106,3 +107,65 @@ def test_line_cumulative_panel_converts_y_to_yi():
     ])
     fig = line_cumulative_panel(df, title="累计", data_date="2026-08-12")
     assert list(fig.data[0].y) == [10.0]
+
+
+def test_industry_heatmap_panel_basic():
+    df = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2026-08-07"), "industry_code": "801770",
+         "industry_name": "银行", "net_margin_5d_change": 1e8},
+        {"trade_date": pd.Timestamp("2026-08-07"), "industry_code": "801780",
+         "industry_name": "非银金融", "net_margin_5d_change": -2e8},
+        {"trade_date": pd.Timestamp("2026-08-08"), "industry_code": "801770",
+         "industry_name": "银行", "net_margin_5d_change": 1.5e8},
+        {"trade_date": pd.Timestamp("2026-08-08"), "industry_code": "801780",
+         "industry_name": "非银金融", "net_margin_5d_change": None},  # NaN
+    ])
+    fig = industry_heatmap_panel(
+        df, title="行业热力图", data_date="2026-08-08",
+    )
+    # Heatmap 是单 trace
+    assert len(fig.data) == 1
+    # x 轴是日期，y 轴是行业名
+    assert list(fig.data[0].x) == ["2026-08-07", "2026-08-08"]
+    # 行业名按 Unicode 升序：银行 (U+94F6) < 非银金融 (U+975E)
+    assert list(fig.data[0].y) == ["银行", "非银金融"]  # sort by name
+
+
+def test_industry_heatmap_panel_yi_units():
+    """数值应转换为亿元（除以 1e8）。"""
+    df = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2026-08-07"), "industry_code": "801770",
+         "industry_name": "银行", "net_margin_5d_change": 1e8},
+    ])
+    fig = industry_heatmap_panel(
+        df, title="行业热力图", data_date="2026-08-07",
+    )
+    # 1e8 元 → 1 亿元
+    z = list(fig.data[0].z)
+    assert z == [[1.0]]
+
+
+def test_industry_heatmap_panel_empty_df_does_not_crash():
+    empty = pd.DataFrame(columns=[
+        "trade_date", "industry_code", "industry_name", "net_margin_5d_change",
+    ])
+    fig = industry_heatmap_panel(
+        empty, title="行业热力图", data_date="2026-08-08",
+    )
+    # 空 figure（pipeline 在更上层 stale fallback，不应调到这里；但需要不崩）
+    assert len(fig.data) == 0 or len(fig.data[0].x) == 0
+
+
+def test_industry_heatmap_panel_colorscale_has_red_and_green():
+    """净流入=红、净流出=绿（A 股配色约定）。"""
+    df = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2026-08-07"), "industry_code": "801770",
+         "industry_name": "银行", "net_margin_5d_change": 1e8},
+    ])
+    fig = industry_heatmap_panel(
+        df, title="行业热力图", data_date="2026-08-07",
+    )
+    colorscale = fig.data[0].colorscale
+    # 负值端（绿）→ 0 → 正值端（红）；检查 colorscale 第一/最后一点颜色
+    assert "rgb(0," in str(colorscale[0]) or "#00" in str(colorscale[0]).lower()
+    assert "rgb(255," in str(colorscale[-1]) or "red" in str(colorscale[-1]).lower()
