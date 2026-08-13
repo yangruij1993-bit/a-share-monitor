@@ -35,7 +35,7 @@ def test_bar_flow_panel_returns_figure_with_color_split():
 
 
 def test_bar_flow_panel_stacks_by_ts_code_when_multi():
-    """多只 ETF 时按 ts_code 拆 trace 并堆叠，hovertemplate 露 ts_code。"""
+    """多只 ETF 时按 ts_code 拆 trace 并堆叠，每只 ETF 一个调色板颜色。"""
     df = pd.DataFrame([
         {"trade_date": pd.Timestamp("2026-08-07"), "ts_code": "510050.SH",
          "label": "huijin", "etf_estimated_flow_cny": 1e9},
@@ -55,6 +55,12 @@ def test_bar_flow_panel_stacks_by_ts_code_when_multi():
     names = [t.name for t in fig.data]
     assert set(names) == {"510050.SH", "510300.SH"}
     assert "510050.SH" in fig.data[0].hovertemplate
+    # 每个 trace 单一颜色（调色板），不同 trace 颜色不同
+    color0 = fig.data[0].marker.color
+    color1 = fig.data[1].marker.color
+    assert isinstance(color0, str)  # 单色字符串，不是颜色数组
+    assert isinstance(color1, str)
+    assert color0 != color1  # 两只 ETF 颜色不同
 
 
 def test_line_cumulative_panel_y_axis_in_yi():

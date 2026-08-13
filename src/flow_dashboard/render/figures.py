@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -13,6 +14,9 @@ from flow_dashboard.render.theme import COLORS, apply_theme
 
 
 _CNY_TO_YI = 1e8  # 亿元
+
+# 多 ETF 堆叠柱图的调色板（Dark24，色盲友好且对比度高）
+_ETF_PALETTE = px.colors.qualitative.Dark24
 
 
 def _to_yi(values: pd.Series | list[float]) -> list[float | None]:
@@ -27,10 +31,11 @@ def bar_flow_panel(
     coverage: float | None = None,
     last_success_at: str | None = None,
 ) -> go.Figure:
-    """日度流量柱图（正绿负红）。
+    """日度流量柱图。
 
-    多只 ETF（ts_code 唯一值 > 1）时按 ts_code 拆 trace 并堆叠（barmode="relative"），
-    每个 trace 的 hovertemplate 露 ts_code 与数值；单只或无 ts_code 时保持原聚合行为。
+    单只 ETF 或无 ts_code：正绿负红聚合（原行为）。
+    多只 ETF：每只 ETF 一个调色板颜色，barmode="relative" 堆叠
+    （正数向上堆、负数向下堆，上下方向区分净流入/流出，颜色区分品种）。
     """
     df = df.sort_values("trade_date")
     fig = go.Figure()
@@ -38,18 +43,16 @@ def bar_flow_panel(
     has_multi_codes = "ts_code" in df.columns and df["ts_code"].nunique(dropna=True) > 1
 
     if has_multi_codes:
-        for ts_code, sub in df.groupby("ts_code", sort=False):
-            sub = sub.sort_values("trade_date")
+        codes = sorted(df["ts_code"].dropna().unique())
+        for i, ts_code in enumerate(codes):
+            sub = df[df["ts_code"] == ts_code].sort_values("trade_date")
             flows_yi = _to_yi(sub["etf_estimated_flow_cny"].tolist())
-            colors = [
-                COLORS["positive_flow"] if (v is not None and v >= 0) else COLORS["negative_flow"]
-                for v in flows_yi
-            ]
+            color = _ETF_PALETTE[i % len(_ETF_PALETTE)]
             fig.add_trace(go.Bar(
                 name=str(ts_code),
                 x=sub["trade_date"].astype(str).tolist(),
                 y=flows_yi,
-                marker_color=colors,
+                marker_color=color,
                 hovertemplate=f"{ts_code}<br>%{{x}}<br>%{{y:.2f}} 亿元<extra></extra>",
             ))
         fig.update_layout(barmode="relative")
