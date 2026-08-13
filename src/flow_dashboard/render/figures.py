@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from flow_dashboard.data.etf_names import etf_display_name
 from flow_dashboard.render.theme import COLORS, apply_theme
 
 
@@ -48,12 +49,16 @@ def bar_flow_panel(
             sub = df[df["ts_code"] == ts_code].sort_values("trade_date")
             flows_yi = _to_yi(sub["etf_estimated_flow_cny"].tolist())
             color = _ETF_PALETTE[i % len(_ETF_PALETTE)]
+            display_name = etf_display_name(str(ts_code))
             fig.add_trace(go.Bar(
-                name=str(ts_code),
+                name=display_name,
                 x=sub["trade_date"].astype(str).tolist(),
                 y=flows_yi,
                 marker_color=color,
-                hovertemplate=f"{ts_code}<br>%{{x}}<br>%{{y:.2f}} 亿元<extra></extra>",
+                hovertemplate=(
+                    f"{display_name} ({ts_code})<br>"
+                    "%{x}<br>%{y:.2f} 亿元<extra></extra>"
+                ),
             ))
         fig.update_layout(barmode="relative")
     else:

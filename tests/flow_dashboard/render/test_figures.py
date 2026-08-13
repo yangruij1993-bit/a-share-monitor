@@ -35,7 +35,10 @@ def test_bar_flow_panel_returns_figure_with_color_split():
 
 
 def test_bar_flow_panel_stacks_by_ts_code_when_multi():
-    """多只 ETF 时按 ts_code 拆 trace 并堆叠，每只 ETF 一个调色板颜色。"""
+    """多只 ETF 时按 ts_code 拆 trace 并堆叠，每只 ETF 一个调色板颜色。
+
+    Legend 显示 ETF 中文名（来自 etf_names.py），hovertemplate 同时含中文名 + ts_code。
+    """
     df = pd.DataFrame([
         {"trade_date": pd.Timestamp("2026-08-07"), "ts_code": "510050.SH",
          "label": "huijin", "etf_estimated_flow_cny": 1e9},
@@ -51,16 +54,18 @@ def test_bar_flow_panel_stacks_by_ts_code_when_multi():
     assert len(fig.data) == 2
     # 堆叠模式
     assert fig.layout.barmode == "relative"
-    # 每个 trace 的 name 是 ts_code，hovertemplate 含 ts_code
+    # legend 显示中文名
     names = [t.name for t in fig.data]
-    assert set(names) == {"510050.SH", "510300.SH"}
+    assert set(names) == {"50ETF", "300ETF"}
+    # hovertemplate 同时含中文名 + ts_code
+    assert "50ETF" in fig.data[0].hovertemplate
     assert "510050.SH" in fig.data[0].hovertemplate
     # 每个 trace 单一颜色（调色板），不同 trace 颜色不同
     color0 = fig.data[0].marker.color
     color1 = fig.data[1].marker.color
-    assert isinstance(color0, str)  # 单色字符串，不是颜色数组
+    assert isinstance(color0, str)
     assert isinstance(color1, str)
-    assert color0 != color1  # 两只 ETF 颜色不同
+    assert color0 != color1
 
 
 def test_line_cumulative_panel_y_axis_in_yi():
