@@ -75,3 +75,59 @@ def compute_weekly_change(
     return pd.concat(out_frames, ignore_index=True).sort_values(
         ["trade_date", "exchange_id"]
     ).reset_index(drop=True)
+
+
+def aggregate_margin_by_industry(
+    margin_df: pd.DataFrame,
+    members_daily: pd.DataFrame,
+) -> pd.DataFrame:
+    """按申万 L1 行业聚合个股两融。
+
+    PIT 关键：用 members_daily（每日成分表）决定每只股票该日属于哪个行业，
+    不用"今天的归属"。
+
+    Args:
+        margin_df: 个股两融明细，含 trade_date, ts_code, rzye, rqye
+        members_daily: 每日成分股，含 trade_date, con_code, industry_code, industry_name
+
+    Returns:
+        DataFrame[trade_date, industry_code, industry_name,
+                  rzye, rqye, net_margin (= rzye - rqye), stock_count]
+    """
+    if margin_df.empty or members_daily.empty:
+        return pd.DataFrame(columns=[
+            "trade_date", "industry_code", "industry_name",
+            "rzye", "rqye", "net_margin", "stock_count",
+        ])
+
+    # 对齐 trade_date 类型为 datetime
+    margin = margin_df.copy()
+    margin["trade_date"] = pd.to_datetime(margin["trade_date"])
+    members = members_daily.copy()
+    members["trade_date"] = pd.to_datetime(members["trade_date"])
+
+    # 内连接：股票两融 × 行业归属
+    merged = margin.merge(
+        members,
+        left_on=["trade_date", "ts_code"],
+        right_on=["trade_date", "con_code"],
+        how="inner",
+    )
+    if merged.empty:
+        return pd.DataFrame(columns=[
+            "trade_date", "industry_code", "industry_name",
+            "rzye", "rqye", "net_margin", "stock_count",
+        ])
+
+    # 按行业 × 日期聚合
+    agg = merged.groupby(
+        ["trade_date", "industry_code", "industry_name"], as_index=False
+    ).agg(
+        rzye=("rzye", "sum"),
+        rqye=("rqye", "sum"),
+        stock_count=("ts_code", "count"),
+    )
+    agg["net_margin"] = agg["rzye"] - agg["rqye"]
+    return agg.sort_values(
+        ["trade_date", "industry_code"]
+    ).reset_index(drop=True)
