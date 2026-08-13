@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 import uuid
 from datetime import datetime
@@ -131,6 +132,13 @@ def publish_archive(
         tmp_sym.unlink()
     os.symlink(archive_path.name, tmp_sym)
     os.replace(tmp_sym, symlink_path)
+
+    # current.html 硬拷贝（覆盖式）：固定 URL，浏览器刷新即看到最新发布
+    # 区别于 latest.html（symlink，跨日期会跳）；current.html 始终是"最近一次 publish"
+    current_path = output_dir / "current.html"
+    tmp_cur = output_dir / "current.html.tmp"
+    shutil.copyfile(archive_path, tmp_cur)
+    os.replace(tmp_cur, current_path)
 
     return staging_path, archive_path, symlink_path, manifest_path
 
