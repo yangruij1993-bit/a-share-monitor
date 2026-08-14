@@ -24,3 +24,4 @@ output/ashare_flow_daily/manifest/
 .vscode/
 .idea/
 .DS_Store
+.env
