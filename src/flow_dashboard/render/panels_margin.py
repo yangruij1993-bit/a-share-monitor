@@ -57,7 +57,7 @@ def render_margin_exchange_panel(
                       y_title="亿元", data_date=data_date,
                       coverage=coverage, last_success_at=last_success_at,
                       unit="亿元")
-    body = render_figure_to_html(fig, div_id="panel-margin-exchange")
+    body = render_figure_to_html(fig, div_id="panel-margin-exchange-fig")
     return _wrap_panel(body)
 
 

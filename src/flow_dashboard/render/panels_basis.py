@@ -38,6 +38,6 @@ def render_basis_panel(
         ic_df, im_df, data_date=data_date,
         coverage=coverage, last_success_at=last_success_at,
     )
-    body = render_figure_to_html(fig, div_id="panel-basis")
-    layer_note = "(盘中预览)" if layer == "intraday" else "(日终正式)"
+    body = render_figure_to_html(fig, div_id="panel-basis-fig")
+    layer_note = "(盘中预览)" if layer == "intraday" else ""
     return _wrap_panel(body, layer_note=layer_note)

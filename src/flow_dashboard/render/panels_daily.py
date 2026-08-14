@@ -69,7 +69,7 @@ def render_huijin_broad_daily(
     fig = bar_flow_panel(sub, title=title,
                          data_date=data_date, coverage=coverage,
                          last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-huijin-broad-daily")
+    body = render_figure_to_html(fig, div_id="panel-huijin-broad-daily-fig")
     return _wrap_panel("panel-huijin-broad-daily", title, body, subtitle=subtitle)
 
 
@@ -85,7 +85,7 @@ def render_tech_tmt_daily(
     fig = bar_flow_panel(sub, title=title,
                          data_date=data_date, coverage=coverage,
                          last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-tech-tmt-daily")
+    body = render_figure_to_html(fig, div_id="panel-tech-tmt-daily-fig")
     return _wrap_panel("panel-tech-tmt-daily", title, body, subtitle=subtitle)
 
 
@@ -102,7 +102,7 @@ def render_total_market_daily(
     fig = bar_flow_panel(agg, title=title,
                          data_date=data_date, coverage=coverage,
                          last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-total-market-daily")
+    body = render_figure_to_html(fig, div_id="panel-total-market-daily-fig")
     return _wrap_panel("panel-total-market-daily", title, body, subtitle=subtitle)
 
 
@@ -118,7 +118,7 @@ def render_broad_daily(
     fig = bar_flow_panel(sub, title=title,
                          data_date=data_date, coverage=coverage,
                          last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-broad-daily")
+    body = render_figure_to_html(fig, div_id="panel-broad-daily-fig")
     return _wrap_panel("panel-broad-daily", title, body, subtitle=subtitle)
 
 
@@ -134,7 +134,7 @@ def render_industry_theme_daily(
     fig = bar_flow_panel(sub, title=title,
                          data_date=data_date, coverage=coverage,
                          last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-industry-theme-daily")
+    body = render_figure_to_html(fig, div_id="panel-industry-theme-daily-fig")
     return _wrap_panel("panel-industry-theme-daily", title, body, subtitle=subtitle)
 
 
@@ -159,7 +159,7 @@ def render_category_cumulative_daily(
     fig = stacked_bar_breakdown_panel(sub, title=title,
                                        data_date=data_date, coverage=coverage,
                                        last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-category-cumulative-daily")
+    body = render_figure_to_html(fig, div_id="panel-category-cumulative-daily-fig")
     return _wrap_panel("panel-category-cumulative-daily", title, body, subtitle=subtitle)
 
 
@@ -175,7 +175,7 @@ def render_cycle_daily(
     fig = bar_flow_panel(sub, title=title,
                          data_date=data_date, coverage=coverage,
                          last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-cycle-daily")
+    body = render_figure_to_html(fig, div_id="panel-cycle-daily-fig")
     return _wrap_panel("panel-cycle-daily", title, body, subtitle=subtitle)
 
 
@@ -194,7 +194,7 @@ def render_cycle_cumulative_daily(
     fig = line_cumulative_panel(by_date, title=title,
                                  data_date=data_date, coverage=coverage,
                                  last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-cycle-cumulative-daily")
+    body = render_figure_to_html(fig, div_id="panel-cycle-cumulative-daily-fig")
     return _wrap_panel("panel-cycle-cumulative-daily", title, body, subtitle=subtitle)
 
 
@@ -210,5 +210,5 @@ def render_top15_etf_daily(
     fig = horizontal_topn_panel(latest, title=title,
                                 data_date=data_date, coverage=coverage,
                                 last_success_at=last_success_at, topn=15)
-    body = render_figure_to_html(fig, div_id="panel-top15-daily")
+    body = render_figure_to_html(fig, div_id="panel-top15-daily-fig")
     return _wrap_panel("panel-top15-daily", title, body, subtitle=subtitle)

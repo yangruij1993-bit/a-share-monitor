@@ -197,7 +197,7 @@ def _run_eod_preview_inner(
         aggregate_market_margin, compute_weekly_change,
         aggregate_margin_by_industry, compute_net_margin_change,
     )
-    from flow_dashboard.indicators.basis import compute_basis
+    from flow_dashboard.indicators.basis import compute_basis, tenor_contracts
     from flow_dashboard.render.panels_daily import (
         render_huijin_broad_daily, render_tech_tmt_daily,
         render_total_market_daily, render_broad_daily,
@@ -229,8 +229,12 @@ def _run_eod_preview_inner(
 
     etf_share = _load_etf_share_for_pipeline(codes, start, end, as_of)
     margin_df = _load_margin_for_pipeline(start, end, as_of)
-    ic_fut = _load_fut_daily_for_pipeline("IC2608.CFX", start, end, as_of)
-    im_fut = _load_fut_daily_for_pipeline("IM2608.CFX", start, end, as_of)
+    # IC/IM 三档合约（当月/当季/下季），到期自动滚换；每档单独成线不拼接
+    tenors = tenor_contracts(pd.Timestamp(data_date))
+    ic_fut = _load_fut_daily_multi(
+        [f"IC{ym}.CFX" for ym, _label in tenors], start, end, as_of)
+    im_fut = _load_fut_daily_multi(
+        [f"IM{ym}.CFX" for ym, _label in tenors], start, end, as_of)
     spot_500 = _load_index_daily_for_pipeline("000905.SH", start, end, as_of)
     spot_1000 = _load_index_daily_for_pipeline("000852.SH", start, end, as_of)
 
@@ -304,9 +308,14 @@ def _run_eod_preview_inner(
         basis_ic = pd.DataFrame()
         basis_im = pd.DataFrame()
 
+    # KPI 卡片取当月主力（tenors 首档），图表展示全部三档
+    front_ym = tenors[0][0]
+    basis_ic_front = basis_ic[basis_ic["ts_code"] == f"IC{front_ym}.CFX"] if not basis_ic.empty else basis_ic
+    basis_im_front = basis_im[basis_im["ts_code"] == f"IM{front_ym}.CFX"] if not basis_im.empty else basis_im
+
     # 核心结论 KPI 卡片
     body_parts.append(render_summary_section(
-        flow=flow, margin_agg=m, basis_ic=basis_ic, basis_im=basis_im,
+        flow=flow, margin_agg=m, basis_ic=basis_ic_front, basis_im=basis_im_front,
     ))
 
     # §1 ETF 被动资金（9 个日度面板）
@@ -450,10 +459,20 @@ def _load_fut_daily_for_pipeline(ts_code, start, end, as_of):
     from flow_dashboard.data.loaders import load_fut_daily
     df = load_fut_daily(ts_code=ts_code, start=start, end=end, as_of=as_of)
     if not df.empty and "delist_date" not in df.columns:
-        # Phase B 占位：未接 fut_basic；与 _quotes_to_fut_df 保持一致（pipeline.py:120）
-        # Tushare fut_daily 的 trade_date 是 tz-naive，故占位也用 tz-naive
-        df["delist_date"] = pd.Timestamp("2026-08-21")
+        # Phase B 占位：未接 fut_basic；按合约月份的第三个周五推到期日。
+        # 仅影响 days_to_delist / 年化贴水（未绘图），不影响 basis_points。
+        from flow_dashboard.indicators.basis import third_friday_of_contract
+        df["delist_date"] = third_friday_of_contract(ts_code)
     return df
+
+
+def _load_fut_daily_multi(ts_codes, start, end, as_of):
+    frames = [
+        d for d in (
+            _load_fut_daily_for_pipeline(c, start, end, as_of) for c in ts_codes
+        ) if not d.empty
+    ]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def _load_index_daily_for_pipeline(ts_code, start, end, as_of):

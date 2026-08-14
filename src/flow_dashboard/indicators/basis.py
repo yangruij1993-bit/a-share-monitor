@@ -8,6 +8,8 @@ per spec §2.1 s4_basis + §3.5.2 红线:
 """
 from __future__ import annotations
 
+import calendar
+
 import pandas as pd
 
 
@@ -101,6 +103,42 @@ def _extract_variety(ts_code: str) -> str:
         else:
             break
     return variety
+
+
+def _third_friday(year: int, month: int) -> pd.Timestamp:
+    """股指期货到期日 = 当月第三个周五。"""
+    first_day_wd, _ = calendar.monthrange(year, month)
+    first_friday = 1 + (4 - first_day_wd) % 7
+    return pd.Timestamp(year=year, month=month, day=first_friday + 14)
+
+
+def third_friday_of_contract(ts_code: str) -> pd.Timestamp:
+    """IC2608.CFX → 2026-08-21（合约月份的第三个周五，即到期日）。"""
+    head = ts_code.split(".")[0]
+    ym = head[-4:]  # IC2608 → 2608
+    year = 2000 + int(ym[:2])
+    month = int(ym[2:])
+    return _third_friday(year, month)
+
+
+def tenor_contracts(data_date: pd.Timestamp) -> list[tuple[str, str]]:
+    """三档合约月份（当月/当季/下季），返回 [(YYMM, 档位标签)]。
+
+    当月 = data_date 所在月；过了当月第三个周五（到期日）即滚到下月。
+    当季 = 当月所在季度的季末月；下季 = 再下一季末。
+    同一月份身兼多档时合并标签（如 9 月的当月与当季同为 2609）。
+    """
+    d = pd.Timestamp(data_date).normalize()
+    y, m = d.year, d.month
+    if d > _third_friday(y, m):
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    q_m = 3 * ((m - 1) // 3) + 3
+    nq_y, nq_m = (y + 1, 3) if q_m == 12 else (y, q_m + 3)
+
+    merged: dict[str, list[str]] = {}
+    for tenor, (yy, mm) in [("当月", (y, m)), ("当季", (y, q_m)), ("下季", (nq_y, nq_m))]:
+        merged.setdefault(f"{yy % 100:02d}{mm:02d}", []).append(tenor)
+    return [(code, "·".join(tenors)) for code, tenors in merged.items()]
 
 
 def _append(existing: str, flag: str) -> str:

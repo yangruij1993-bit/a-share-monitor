@@ -4,7 +4,9 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from flow_dashboard.indicators.basis import compute_basis
+from flow_dashboard.indicators.basis import (
+    compute_basis, tenor_contracts, third_friday_of_contract,
+)
 
 
 def _sample():
@@ -90,3 +92,28 @@ def test_compute_basis_missing_spot_close():
     d2 = out[out["trade_date"] == pd.Timestamp("2026-08-08")].iloc[0]
     assert pd.isna(d2["discount_rate"])
     assert "missing_spot" in d2["quality_flags"]
+
+
+def test_third_friday_of_contract():
+    # 2026-08 第三个周五 = 8/21；2026-09 = 9/18；2026-12 = 12/18
+    assert third_friday_of_contract("IC2608.CFX") == pd.Timestamp("2026-08-21")
+    assert third_friday_of_contract("IM2609.CFX") == pd.Timestamp("2026-09-18")
+    assert third_friday_of_contract("IC2612.CFX") == pd.Timestamp("2026-12-18")
+
+
+def test_tenor_contracts_normal_month():
+    """8 月中旬：当月 2608，当季 2609，下季 2612。"""
+    out = tenor_contracts(pd.Timestamp("2026-08-14"))
+    assert out == [("2608", "当月"), ("2609", "当季"), ("2612", "下季")]
+
+
+def test_tenor_contracts_rolls_after_expiry():
+    """过了当月第三个周五（8/21）后，当月滚到 9 月，与当季合并标签。"""
+    out = tenor_contracts(pd.Timestamp("2026-08-25"))
+    assert out == [("2609", "当月·当季"), ("2612", "下季")]
+
+
+def test_tenor_contracts_december():
+    """12 月：当月与当季同为 2612，下季滚到次年 3 月（2703）。"""
+    out = tenor_contracts(pd.Timestamp("2026-12-10"))
+    assert out == [("2612", "当月·当季"), ("2703", "下季")]

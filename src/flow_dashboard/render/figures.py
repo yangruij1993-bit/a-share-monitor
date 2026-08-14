@@ -185,6 +185,11 @@ def multi_line_period_panel(
     )
 
 
+def _contract_sort_key(item: tuple[str, pd.DataFrame]) -> str:
+    """合约按 YYMM 升序排（当月在前），供 groupby 后排序。"""
+    return item[0]
+
+
 def dual_subplot_basis_panel(
     ic_df: pd.DataFrame,
     im_df: pd.DataFrame,
@@ -193,40 +198,44 @@ def dual_subplot_basis_panel(
     coverage: float | None = None,
     last_success_at: str | None = None,
 ) -> go.Figure:
-    """IC/IM 双 subplot：basis_points 柱图（每个 variety 一行）。
+    """IC/IM 双 subplot：每档合约一条 basis_points 折线（当月/当季/下季）。
 
-    注：``annualized_discount_rate`` 列存在但不在此首版中绘制（spec §3.5.2 仅要求跟踪基差）。
+    同一 df 内多个 ts_code 时逐合约画线，图例标注合约名（如 IC2608）。
+    不拼接连续序列 —— 每条线自始至终是同一合约（spec §3.5.2 红线）。
     """
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=False,
-        subplot_titles=("IC 中证 500 基差", "IM 中证 1000 基差"),
-        vertical_spacing=0.25,
+        subplot_titles=("IC 中证 500 基差（当月/当季/下季）", "IM 中证 1000 基差（当月/当季/下季）"),
+        vertical_spacing=0.16,
     )
-    for i, (label, df) in enumerate([("IC", ic_df), ("IM", im_df)], start=1):
-        df = df.sort_values("trade_date")
-        fig.add_trace(
-            go.Bar(
-                x=df["trade_date"].astype(str).tolist(),
-                y=df["basis_points"].tolist(),
-                name=f"{label} basis_points",
-                marker_color=COLORS["primary"] if i == 1 else COLORS["warning"],
-            ),
-            row=i, col=1,
-        )
+    line_colors = [COLORS["primary"], COLORS["warning"], COLORS["primary_light"]]
+    for i, df in enumerate([ic_df, im_df], start=1):
+        for j, (ts_code, g) in enumerate(sorted(df.groupby("ts_code"), key=_contract_sort_key)):
+            g = g.sort_values("trade_date")
+            fig.add_trace(
+                go.Scatter(
+                    x=g["trade_date"].astype(str).tolist(),
+                    y=g["basis_points"].tolist(),
+                    mode="lines",
+                    name=ts_code.split(".")[0],
+                    line={"color": line_colors[j % len(line_colors)], "width": 2},
+                ),
+                row=i, col=1,
+            )
+    # 面板 h2 已有标题（panels_basis._wrap_panel），图内不再重复大标题；
+    # 顶部 margin 只留给"覆盖率/最近获取"角注。
     fig.update_layout(
-        title={
-            "text": f"期货基差（IC/IM 逐合约）<br><span style='font-size:11px;color:#666'>数据日期: {data_date}</span>",
-            "x": 0.5, "xanchor": "center",
-        },
-        height=720,
-        margin={"l": 60, "r": 30, "t": 100, "b": 60},
+        height=680,
+        margin={"l": 60, "r": 30, "t": 60, "b": 30},
         plot_bgcolor=COLORS["background"],
-        showlegend=False,
+        showlegend=True,
     )
-    # type="category" 防止 Plotly 把 "YYYY-MM-DD" 字符串识别为日期造成周末空白。
-    fig.update_xaxes(type="category")
+    # type="category" 防止 Plotly 把 "YYYY-MM-DD" 字符串识别为日期造成周末空白；
+    # category ascending 强制类别按日期字符串排序（YYYY-MM-DD 字典序=时间序），
+    # 否则按"首次出现"排序，晚上市合约（当月）的起始日期会排到轴末尾，折线被打乱。
+    fig.update_xaxes(type="category", categoryorder="category ascending")
     annotations = list(fig.layout.annotations or [])
-    notes = []
+    notes = [f"数据日期: {data_date}"]
     if coverage is not None:
         notes.append(f"覆盖率: {coverage:.1%}")
     if last_success_at:

@@ -49,7 +49,7 @@ def render_broad_weekly(
     fig = multi_line_period_panel(sub, title="宽基 ETF 周度流量",
                                   data_date=data_date, coverage=coverage,
                                   last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-broad-weekly")
+    body = render_figure_to_html(fig, div_id="panel-broad-weekly-fig")
     return _wrap_panel("panel-broad-weekly", "宽基 ETF 周度流量", body)
 
 
@@ -64,7 +64,7 @@ def render_industry_theme_weekly(
     fig = multi_line_period_panel(sub, title="行业/主题 ETF 周度流量",
                                   data_date=data_date, coverage=coverage,
                                   last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-industry-weekly")
+    body = render_figure_to_html(fig, div_id="panel-industry-weekly-fig")
     return _wrap_panel("panel-industry-weekly", "行业/主题 ETF 周度流量", body)
 
 
@@ -78,7 +78,7 @@ def render_category_cumulative_weekly(
     fig = multi_line_period_panel(df, title="分类累计周度流量",
                                   data_date=data_date, coverage=coverage,
                                   last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-category-weekly")
+    body = render_figure_to_html(fig, div_id="panel-category-weekly-fig")
     return _wrap_panel("panel-category-weekly", "分类累计周度流量", body)
 
 
@@ -95,5 +95,5 @@ def render_monthly_total(
     fig = multi_line_period_panel(agg, title="月度合计流量",
                                   data_date=data_date, coverage=coverage,
                                   last_success_at=last_success_at)
-    body = render_figure_to_html(fig, div_id="panel-monthly-total")
+    body = render_figure_to_html(fig, div_id="panel-monthly-total-fig")
     return _wrap_panel("panel-monthly-total", "月度合计", body)
