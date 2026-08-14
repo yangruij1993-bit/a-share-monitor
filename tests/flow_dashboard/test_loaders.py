@@ -75,7 +75,7 @@ def test_load_etf_share_cache_hit_skips_network(monkeypatch, tmp_path):
         "flow_dashboard.data.loaders._pull_etf_share_for_load", mock_pull
     )
     as_of = pd.Timestamp("2026-08-12 09:00", tz="Asia/Shanghai")
-    # end=2026-08-12 → end-1day=2026-08-11；cache_max=2026-08-11 不 stale
+    # as_of 09:00 < 19:00 → 可得最新为 08-11；cache_max=2026-08-11 不 stale
     load_etf_share(
         codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
         end=pd.Timestamp("2026-08-12"), as_of=as_of, cache_dir=tmp_path,
@@ -88,7 +88,7 @@ def test_load_etf_share_cache_hit_skips_network(monkeypatch, tmp_path):
 
 
 def test_load_etf_share_stale_cache_refetches(monkeypatch, tmp_path):
-    """cache_max 落后于 end-1day → 视为 stale，第二次 load 重拉。"""
+    """cache_max 落后于 PIT 可得阈值 → 视为 stale，第二次 load 重拉。"""
     # 模拟 provider：第一次返回旧数据，第二次返回新数据
     state = {"call": 0}
 
@@ -115,7 +115,7 @@ def test_load_etf_share_stale_cache_refetches(monkeypatch, tmp_path):
         codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
         end=pd.Timestamp("2026-08-13"), as_of=as_of, cache_dir=tmp_path,
     )
-    # 第二次：cache_max=8-7 < end-1day=8-12 → stale → 重拉
+    # 第二次：cache_max=8-7 < 阈值=8-12（as_of 8-13 09:00 → 可得 8-12）→ stale → 重拉
     out = load_etf_share(
         codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
         end=pd.Timestamp("2026-08-13"), as_of=as_of, cache_dir=tmp_path,
@@ -123,6 +123,44 @@ def test_load_etf_share_stale_cache_refetches(monkeypatch, tmp_path):
     assert state["call"] == 2  # 重拉一次
     # 合并后最新日期应为 8-11
     assert out["trade_date"].max() == pd.Timestamp("2026-08-11")
+
+
+def test_load_etf_share_morning_finalize_refetches_latest_day(monkeypatch, tmp_path):
+    """早上定稿场景（回归）：T+1 09:15 定稿 end=T，cache 只有 T-1 → 必须重拉。
+
+    旧阈值 end-1day 会把 cache_max=T-1 误判为新鲜，导致图表永远缺最后一个交易日。
+    """
+    state = {"call": 0}
+
+    def mock_pull(codes, start, end):
+        state["call"] += 1
+        if state["call"] == 1:
+            return pd.DataFrame([
+                {"ts_code": "510050.SH", "trade_date": pd.Timestamp("2026-08-12"),
+                 "total_share": 100.0, "total_size": 100.0, "exchange": "SSE",
+                 "etf_name": "50ETF"},
+            ])
+        return pd.DataFrame([
+            {"ts_code": "510050.SH", "trade_date": pd.Timestamp("2026-08-13"),
+             "total_share": 105.0, "total_size": 105.0, "exchange": "SSE",
+             "etf_name": "50ETF"},
+        ])
+
+    monkeypatch.setattr(
+        "flow_dashboard.data.loaders._pull_etf_share_for_load", mock_pull
+    )
+    as_of = pd.Timestamp("2026-08-14 09:15", tz="Asia/Shanghai")
+    load_etf_share(
+        codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
+        end=pd.Timestamp("2026-08-13"), as_of=as_of, cache_dir=tmp_path,
+    )
+    # 第二次：cache_max=8-12，end=8-13，as_of 8-14 09:15 时 8-13 已可得 → stale
+    out = load_etf_share(
+        codes=["510050.SH"], start=pd.Timestamp("2026-08-01"),
+        end=pd.Timestamp("2026-08-13"), as_of=as_of, cache_dir=tmp_path,
+    )
+    assert state["call"] == 2
+    assert out["trade_date"].max() == pd.Timestamp("2026-08-13")
 
 
 def test_load_etf_share_use_cache_false_bypasses(monkeypatch, tmp_path):

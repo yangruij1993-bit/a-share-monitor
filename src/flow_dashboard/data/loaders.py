@@ -57,9 +57,9 @@ def load_etf_share(
 ) -> pd.DataFrame:
     """加载 ETF 份额，落盘 parquet 增量缓存，PIT 过滤。
 
-    Stale 检测：cache 命中后比对每个 code 的最新 trade_date 与 end。
-    若落后于 end-1 calendar day（Tushare T+1 发布，周末边界自然兼容），
-    视为 stale 并加入重拉列表。
+    Stale 检测：cache 命中后比对每个 code 的最新 trade_date 与 PIT 可得阈值
+    min(end, as_of 时已可得的最新 trade_date)。数据 T 日 19:00 后可得，
+    早上定稿（T+1）时缺 T 日数据即重拉；晚间 preview 时阈值自然回落到 T-1。
     """
     cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -72,7 +72,7 @@ def load_etf_share(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         cached_codes = set(cached["ts_code"].unique()) if not cached.empty else set()
         missing_codes = [c for c in codes if c not in cached_codes]
-        stale_codes = _stale_codes(cached, codes, end)
+        stale_codes = _stale_codes(cached, codes, end, as_of)
         codes_to_refresh = missing_codes + stale_codes
         if not codes_to_refresh:
             return _filter_range(cached, start, end)
@@ -99,19 +99,41 @@ def load_etf_share(
     return fresh
 
 
+def _latest_available_date(as_of: pd.Timestamp) -> pd.Timestamp:
+    """Tushare 日频数据 available_at = trade_date 当日 19:00（TIMEZONE）。
+
+    返回 as_of 时刻已可得的最新 trade_date（naive 日期）：19:00 前算前一日。
+    """
+    ts = pd.Timestamp(as_of)
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert(TIMEZONE).tz_localize(None)
+    day = ts.normalize()
+    return day if ts.hour >= 19 else day - pd.Timedelta(days=1)
+
+
+def _stale_threshold(end: pd.Timestamp, as_of: pd.Timestamp) -> pd.Timestamp:
+    """stale 判定阈值 = min(end, as_of 时已可得的最新 trade_date)。
+
+    早上定稿（T+1 09:15, end=T）时 T 数据已发布 → 阈值=T，cache 缺 T 即重拉；
+    晚间 preview（T 19:30, end=T）时 T 数据尚未发布 → 阈值回落到 PIT 可得日。
+    """
+    return min(pd.Timestamp(end).normalize(), _latest_available_date(as_of))
+
+
 def _stale_codes(
     cached: pd.DataFrame,
     codes: list[str],
     end: pd.Timestamp,
+    as_of: pd.Timestamp,
     date_col: str = "trade_date",
 ) -> list[str]:
-    """识别 cached 中 date_col 落后于 end-1day 的 code（需重拉）。
+    """识别 cached 中 date_col 落后于 PIT 可得阈值的 code（需重拉）。
 
     用于多 code 共享 cache 的 loader（etf_share / fund_nav）。
     """
     if cached.empty or "ts_code" not in cached.columns or date_col not in cached.columns:
         return []
-    threshold = (pd.Timestamp(end) - pd.Timedelta(days=1)).normalize()
+    threshold = _stale_threshold(end, as_of)
     stale = []
     for c in codes:
         sub = cached[cached["ts_code"] == c]
@@ -124,7 +146,10 @@ def _stale_codes(
 
 
 def _stale_single(
-    cached: pd.DataFrame, end: pd.Timestamp, date_col: str = "trade_date"
+    cached: pd.DataFrame,
+    end: pd.Timestamp,
+    as_of: pd.Timestamp,
+    date_col: str = "trade_date",
 ) -> bool:
     """单 code per file loader 用（fut_daily / index_daily）。
 
@@ -132,7 +157,7 @@ def _stale_single(
     """
     if cached.empty or date_col not in cached.columns:
         return True
-    threshold = (pd.Timestamp(end) - pd.Timedelta(days=1)).normalize()
+    threshold = _stale_threshold(end, as_of)
     cached_max = pd.Timestamp(cached[date_col].max()).normalize()
     return cached_max < threshold
 
@@ -283,7 +308,7 @@ def load_fut_daily(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         if not cached.empty and "ts_code" in cached.columns:
             cached_codes = set(cached["ts_code"].unique())
-            if ts_code in cached_codes and not _stale_single(cached, end):
+            if ts_code in cached_codes and not _stale_single(cached, end, as_of):
                 return _filter_range(cached, start, end)
 
     fresh = pull_fut_daily(
@@ -350,7 +375,7 @@ def load_index_daily(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         if not cached.empty and "ts_code" in cached.columns:
             cached_codes = set(cached["ts_code"].unique())
-            if ts_code in cached_codes and not _stale_single(cached, end):
+            if ts_code in cached_codes and not _stale_single(cached, end, as_of):
                 return _filter_range(cached, start, end)
 
     fresh = pull_index_daily(
@@ -417,7 +442,7 @@ def load_fund_nav(
         cached = cached[cached["available_at"] <= pd.Timestamp(as_of)]
         cached_codes = set(cached["ts_code"].unique()) if not cached.empty else set()
         missing_codes = [c for c in codes if c not in cached_codes]
-        stale_codes = _stale_codes(cached, codes, end, date_col="nav_date")
+        stale_codes = _stale_codes(cached, codes, end, as_of, date_col="nav_date")
         codes_to_refresh = missing_codes + stale_codes
         if not codes_to_refresh:
             return _filter_range(cached, start, end)
