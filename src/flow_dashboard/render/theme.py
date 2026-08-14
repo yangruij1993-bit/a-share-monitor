@@ -210,7 +210,7 @@ header.report-header .meta span {{ margin-right: 24px; }}
 
 /* —— 数据卡片（核心结论） —— */
 .cards-row {{
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
     gap: 12px; margin: 0 0 24px 0;
 }}
 .kpi-card {{
