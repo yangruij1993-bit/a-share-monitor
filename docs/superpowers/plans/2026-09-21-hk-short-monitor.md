@@ -583,6 +583,11 @@ def recent_sfc_position_dates(as_of, n: int = 8) -> list[pd.Timestamp]:
 
 注意：实现里删掉笔误函数 `_ts`（保留 `_norm` 即可）。
 
+**勘误（c）：原参考代码与其验收测试自相矛盾，按测试为准修正了三处**（后续任务依赖这些契约，实施时不得回退）：
+1. `latest_trading_day_on_or_before` 改为时间感知语义：纯日期（午夜）输入 = 问"当日开盘前"，当日不计入（周一 → 上周五）；带具体时间的时间戳且当日为交易日 → 当日计入。Task 14 EOD runner（18:45 带时间）与 Task 16 @live（now-1d 带时间）依赖"计入当日"；`prev_trading_day` 内部回溯依赖"不计入当日"。
+2. `prev_trading_day` 独立实现为"严格早于 d 的最近交易日"（不再委托 latest_trading_day_on_or_before，否则跨午夜语义漂移）。
+3. `recent_sfc_position_dates` 用 while 循环向更早交易周回溯直到取满 n 期（原 `for k in range(0, n)` 在本周五未到时只能产出 n-1 期，测试要求 len==3）。
+
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m pytest tests/flow_dashboard/test_hk_calendar.py -v`
