@@ -140,6 +140,11 @@ def test_sfc_stock_metrics_four_week_delta():
     assert out2["available"] is True and out2.get("delta_4w_bp") is None
 
 
+def test_sfc_stock_metrics_nan_total_shares_unavailable():
+    out = mx.sfc_stock_metrics(_sfc_two_weeks(), "00001.HK", total_shares=float("nan"))
+    assert out["available"] is False
+
+
 def test_sfc_market_metrics_ratio_and_breadth():
     out = mx.sfc_market_metrics(_sfc_two_weeks(), _shares(),
                                 min_comparable=2, min_coverage=0.5)

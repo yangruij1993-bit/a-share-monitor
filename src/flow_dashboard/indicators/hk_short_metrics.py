@@ -105,7 +105,7 @@ def stock_daily(em_df: pd.DataFrame, code: str) -> pd.DataFrame:
 def sfc_stock_metrics(sfc_df: pd.DataFrame, code: str, total_shares: float,
                       *, jump_threshold: float = 0.20) -> dict:
     """个股 SFC：淡仓/总股本比例周环比（bp）及 4 周斜率。隐含价跳变>阈值=公司行动嫌疑→unavailable。"""
-    if sfc_df is None or sfc_df.empty or not total_shares:
+    if sfc_df is None or sfc_df.empty or not total_shares or pd.isna(total_shares):
         return {"available": False}
     code5 = str(code).split(".")[0].zfill(5)
     df = sfc_df[sfc_df["code"] == code5].sort_values("position_date")
