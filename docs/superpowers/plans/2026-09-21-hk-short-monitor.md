@@ -4322,6 +4322,14 @@ git commit -m "test(hk-short): live smoke tests for all frozen sources"
 
 ---
 
+## 首日上线实测修复记录（2026-09-22，收尾步骤 3 期间发现，合并 main 后提交）
+
+1. **SFC 网站改版（a0fada6）**：`/-/media/EN/pdf/spr/` 旧路径（按公布日组织）整体 302→/404，连 2024 年已验证地址也失效。新路径按报告期组织（`spr/{position_date}/..._{position_date}.csv`），单一确定性 URL 取代候选公布日探测；未公布文件 302 跟随到 200 text/html 的 404 页，新增 `_looks_like_sfc_csv` 载荷校验后解析。source-validation.md §4 已同步更新（含官网汇总页发现方式）。
+2. **东财卖空页空数据崩溃（52a169b）**：当日数据未发布（实测 16:37 空、16:42 已有）时 `_collect_pages` 对空列表 concat 抛 ValueError，违反"非交易日返回空表不抛错"契约；修复为过滤后为空即返回空 DataFrame。发布时点晚于源验证假设的 16:10，18:45 调度不受影响（§8 已注明）。
+3. **f84 总股本未覆盖 SFC 宇宙（37623d6）**：市场 SFC 证据（Σ淡仓/Σ市值，覆盖 ≥80% 门槛，设计 §6.1）需全报告宇宙 ~1200 只总股本，管线/回补原只传 watch list 6 只 → 结论卡 SFC 腿恒"可比集合不足"。管线与回补 CLI 改为 watch ∪ SFC 宇宙（首跑一次性回补，之后随周报增量）。
+
+---
+
 ## 收尾
 
 1. 全量回归：`python -m pytest tests/flow_dashboard/ -v`（排除 live）全绿。
