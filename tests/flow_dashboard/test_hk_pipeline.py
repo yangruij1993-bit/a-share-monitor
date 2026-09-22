@@ -234,6 +234,40 @@ def test_hk_tab_render_failure_does_not_block_ashare_publish(tmp_path, monkeypat
     assert manifest["panel_status"]["hk_data_date"] is None
 
 
+def test_fetch_hk_increments_covers_sfc_universe_for_shares(monkeypatch):
+    """市场 SFC 证据需全报告宇宙总股本（市值覆盖 ≥80%，设计 §6.1/§6.3）。"""
+    from flow_dashboard import hk_short_pipeline as hp
+    from flow_dashboard.config import HK_WATCH_LIST
+    from flow_dashboard.data.hk_short import loaders
+
+    recorded = {}
+
+    def noop(**kw):
+        return lambda *a, **k: None
+
+    for name in (
+        "load_em_sellshort",
+        "load_hkex_dayquot",
+        "load_hk_kline",
+        "load_etf_master",
+    ):
+        monkeypatch.setattr(loaders, name, noop())
+
+    monkeypatch.setattr(
+        loaders,
+        "load_sfc_weekly",
+        lambda *a, **k: pd.DataFrame({"code": ["00700", "03690", "09988"]}),
+    )
+    monkeypatch.setattr(
+        loaders,
+        "load_total_shares",
+        lambda *a, **k: recorded.update(codes=k["codes"]) or pd.DataFrame(),
+    )
+    hp._fetch_hk_increments(pd.Timestamp("2026-09-22 18:45", tz="Asia/Shanghai"))
+    want = {c for _, c in HK_WATCH_LIST} | {"00700", "03690", "09988"}
+    assert set(recorded["codes"]) == want
+
+
 def test_backfill_cli_wires_windows(tmp_path, monkeypatch):
     """backfill CLI 把窗口参数传给各 loader（SFC 用周数、K线用 secids）。"""
     import importlib.util
@@ -250,6 +284,9 @@ def test_backfill_cli_wires_windows(tmp_path, monkeypatch):
     def fake_loader(name):
         def f(**kw):
             calls[name] = kw
+            if name == "sfc":
+                return pd.DataFrame({"code": ["00700", "3690"]})  # 含非 5 位代码
+            return None
 
         return f
 
@@ -287,9 +324,11 @@ def test_backfill_cli_wires_windows(tmp_path, monkeypatch):
     assert calls["kline"]["start"] == pd.Timestamp("2026-08-19")
     assert "116.00700" in calls["kline"]["secids"]
     assert "100.HSI" in calls["kline"]["secids"]
-    assert [
+    watch = [
         c
         for _, c in __import__(
             "flow_dashboard.config", fromlist=["HK_WATCH_LIST"]
         ).HK_WATCH_LIST
-    ] == calls["shares"]["codes"]
+    ]
+    # shares 覆盖 watch list ∪ SFC 报告宇宙（市场 SFC 证据需全宇宙总股本）
+    assert calls["shares"]["codes"] == watch + ["00700", "3690"]

@@ -82,13 +82,19 @@ def main(argv: list[str] | None = None) -> int:
     log.info("backfill HKEX dayquot %s 起（每日 26MB）", hkex_start.date())
     L["hkex"](as_of=as_of, start=hkex_start, cache_dir=cache_dir)
     log.info("backfill SFC %d 周", args.sfc_weeks)
-    L["sfc"](as_of=as_of, weeks=args.sfc_weeks, cache_dir=cache_dir)
+    sfc = L["sfc"](as_of=as_of, weeks=args.sfc_weeks, cache_dir=cache_dir)
     kline_start = as_of.tz_localize(None).normalize() - pd.Timedelta(
         days=args.kline_days
     )
     log.info("backfill kline %s 起", kline_start.date())
     L["kline"](as_of=as_of, secids=secids, start=kline_start, cache_dir=cache_dir)
-    L["shares"](as_of=as_of, codes=watch_codes, cache_dir=cache_dir)
+    # 市场 SFC 证据需全报告宇宙的总股本（设计 §6.1）
+    sfc_codes = (
+        sorted(sfc["code"].astype(str).unique())
+        if sfc is not None and not sfc.empty
+        else []
+    )
+    L["shares"](as_of=as_of, codes=watch_codes + sfc_codes, cache_dir=cache_dir)
     L["los"](as_of=as_of, cache_dir=cache_dir)
     log.info("backfill done")
     return 0

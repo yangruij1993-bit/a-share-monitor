@@ -54,10 +54,16 @@ def _fetch_hk_increments(as_of) -> None:
     load_em_sellshort(as_of=as_of)  # 全市场逐日（full 标记）
     load_em_sellshort(as_of=as_of, codes=[c for _, c in HK_WATCH_LIST])
     load_hkex_dayquot(as_of=as_of)
-    load_sfc_weekly(as_of=as_of)
+    sfc = load_sfc_weekly(as_of=as_of)
     secids = list(HK_INDEX_SECIDS.values()) + [_hk_secid(c) for _, c in HK_WATCH_LIST]
     load_hk_kline(as_of=as_of, secids=secids)
-    load_total_shares(as_of=as_of, codes=[c for _, c in HK_WATCH_LIST])
+    # 市场 SFC 证据（Σ淡仓/Σ市值）需全报告宇宙的总股本（设计 §6.1）
+    sfc_codes = (
+        sorted(sfc["code"].astype(str).unique())
+        if sfc is not None and not sfc.empty
+        else []
+    )
+    load_total_shares(as_of=as_of, codes=[c for _, c in HK_WATCH_LIST] + sfc_codes)
     load_etf_master(as_of=as_of)
 
 
