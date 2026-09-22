@@ -1045,6 +1045,23 @@ def test_parse_list_of_securities():
     assert r["category"] == "Exchange Traded Products"
     assert set(hkex_client.etf_set(df)) == {"02800"}
     assert hkex_client.reit_set(df) == set()
+
+
+class _Resp:
+    def __init__(self, text="", status=200):
+        self.status_code = status
+        self.text = text
+
+
+def test_fetch_dayquot_three_state_contract(monkeypatch):
+    # 404 → None（非交易日/超出 ~61 天滚动窗口的探测语义）
+    monkeypatch.setattr(hkex_client.http_client, "try_get", lambda url, **k: None)
+    assert hkex_client.fetch_dayquot("2026-09-18") is None
+    # 200 但两段皆无数据行 → 空 DataFrame（不是 None——loader 语义区分）
+    monkeypatch.setattr(hkex_client.http_client, "try_get",
+                        lambda url, **k: _Resp(text="<html>nothing</html>"))
+    out = hkex_client.fetch_dayquot("2026-09-18")
+    assert out is not None and out.empty
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -1216,6 +1233,10 @@ Run: `python -m pytest tests/flow_dashboard/test_hk_hkex_client.py -v`
 Expected: 4 passed
 
 注意：测试里 prev 段断言 3 行是因为 fixture 中 prev 段后无其他 6 字段数字行；真实文件若 prev 段之后存在同构表格，靠 `_ROW_RE` 特异性（代码+名称+4 个千分位数字）过滤——上线时用 Task 16 的 @live 测试核验行数在 700–900 区间。
+
+**勘误（质量评审加固，实施时保留）**：
+1. `test_parse_dayquot_missing_section_returns_empty` 的调用改为关键字参数（`data_date=..., prev_date=...`）——原文位置调用与 keyword-only 签名冲突，签名是冻结契约（Task 7 依赖）。
+2. 补 `test_fetch_dayquot_three_state_contract`：钉死 404→None / 200 空段→空表 的三态契约（Task 7 loader 依赖 None 与空表的区分）；同时使 "Expected: 4 passed" 计数成立（原文 3 个测试，计划笔误）。
 
 - [ ] **Step 5: Commit**
 
