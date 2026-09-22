@@ -7,6 +7,7 @@
 - "·SFC待确认"后缀只在超过宽限期仍缺最新一期时添加
 - ETF 干扰只加注释，不改状态
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,7 +16,8 @@ import pandas as pd
 
 from flow_dashboard.config import HK_THRESHOLDS
 from flow_dashboard.data.hk_short.hk_calendar import (
-    recent_sfc_position_dates, sfc_grace_deadline,
+    recent_sfc_position_dates,
+    sfc_grace_deadline,
 )
 
 ETF_HEDGE_NOTE = "总沽空增加或主要来自指数对冲，不宜直接解读为个股看空增强"
@@ -26,10 +28,10 @@ COVER_NOTE = "沽空额仍高，回补或伴随激烈博弈"
 
 @dataclass
 class Evidence:
-    oi: str = "unavailable"          # up / down / flat / unavailable
+    oi: str = "unavailable"  # up / down / flat / unavailable
     short_high: bool = False
     ssr_high: bool = False
-    price: str = "neutral"           # up / down / neutral / unavailable
+    price: str = "neutral"  # up / down / neutral / unavailable
     participation_high: bool = False
     sfc_pending: bool = False
     etf_interference: bool = False
@@ -39,8 +41,13 @@ class Evidence:
 def _classify(ev: Evidence) -> dict:
     """§6.4 状态矩阵（自上而下，首个命中即返回）。"""
     state, notes = "暂时无法确认", list(ev.notes)
-    if (ev.oi == "up" and ev.short_high and ev.ssr_high
-            and ev.price == "down" and ev.participation_high):
+    if (
+        ev.oi == "up"
+        and ev.short_high
+        and ev.ssr_high
+        and ev.price == "down"
+        and ev.participation_high
+    ):
         state = "空头净加仓迹象明显"
     elif ev.oi == "up" and ev.price == "up":
         state = "多空分歧扩大"
@@ -97,10 +104,11 @@ def market_conclusion(
     t = HK_THRESHOLDS
     ev = Evidence(
         oi=_market_oi(sfc, t),
-        short_high=(weekly_short_intensity is not None
-                    and weekly_short_intensity >= t["weekly_intensity_high"]),
-        ssr_high=(ssr_percentile is not None
-                  and ssr_percentile >= t["ssr_pct_high"]),
+        short_high=(
+            weekly_short_intensity is not None
+            and weekly_short_intensity >= t["weekly_intensity_high"]
+        ),
+        ssr_high=(ssr_percentile is not None and ssr_percentile >= t["ssr_pct_high"]),
         price=price,
         participation_high=participation_high,
         sfc_pending=sfc_pending,
@@ -123,10 +131,11 @@ def stock_conclusion(
     t = HK_THRESHOLDS
     ev = Evidence(
         oi=_stock_oi(sfc, t),
-        short_high=(weekly_short_intensity is not None
-                    and weekly_short_intensity >= t["weekly_intensity_high"]),
-        ssr_high=(ssr_percentile is not None
-                  and ssr_percentile >= t["ssr_pct_high"]),
+        short_high=(
+            weekly_short_intensity is not None
+            and weekly_short_intensity >= t["weekly_intensity_high"]
+        ),
+        ssr_high=(ssr_percentile is not None and ssr_percentile >= t["ssr_pct_high"]),
         price=price,
         participation_high=participation_high,
         etf_interference=etf_interference,
@@ -135,7 +144,9 @@ def stock_conclusion(
     return _classify(ev)
 
 
-def sfc_is_pending(*, latest_cached_pd, as_of) -> bool:
+def sfc_is_pending(
+    *, latest_cached_pd: pd.Timestamp | None, as_of: pd.Timestamp
+) -> bool:
     """缓存是否缺失已超宽限期的 SFC 周报（设计 §6.3，勘误修正版）。
 
     从最新缓存一期之后的第一个应公布周 W（recent 列表中 > 缓存期的最小一周）
