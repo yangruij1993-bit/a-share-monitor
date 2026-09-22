@@ -23,6 +23,7 @@ from flow_dashboard.config import (
     HK_INDEX_SECIDS,
     HK_SHORT_CACHE_DIR,
     HK_WATCH_LIST,
+    _hk_secid,
 )
 
 log = logging.getLogger(__name__)
@@ -70,9 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     cache_dir = Path(args.cache_dir) if args.cache_dir else HK_SHORT_CACHE_DIR
 
     watch_codes = [c for _, c in HK_WATCH_LIST]
-    secids = list(HK_INDEX_SECIDS.values()) + [
-        f"116.{c.split('.')[0].zfill(5)}" for c in watch_codes
-    ]
+    secids = list(HK_INDEX_SECIDS.values()) + [_hk_secid(c) for c in watch_codes]
 
     L = _loaders()
     em_start = as_of.tz_localize(None).normalize() - pd.Timedelta(days=args.em_days)

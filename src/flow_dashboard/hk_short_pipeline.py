@@ -19,6 +19,7 @@ from flow_dashboard.config import (
     HK_WATCH_LIST,
     OUTPUT_DIR,
     RUNNERS_LOCK,
+    _hk_secid,
 )
 from flow_dashboard.data.hk_short.hk_calendar import (
     is_hk_trading_day,
@@ -54,9 +55,7 @@ def _fetch_hk_increments(as_of) -> None:
     load_em_sellshort(as_of=as_of, codes=[c for _, c in HK_WATCH_LIST])
     load_hkex_dayquot(as_of=as_of)
     load_sfc_weekly(as_of=as_of)
-    secids = list(HK_INDEX_SECIDS.values()) + [
-        f"116.{c.split('.')[0].zfill(5)}" for _, c in HK_WATCH_LIST
-    ]
+    secids = list(HK_INDEX_SECIDS.values()) + [_hk_secid(c) for _, c in HK_WATCH_LIST]
     load_hk_kline(as_of=as_of, secids=secids)
     load_total_shares(as_of=as_of, codes=[c for _, c in HK_WATCH_LIST])
     load_etf_master(as_of=as_of)
