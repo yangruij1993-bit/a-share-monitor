@@ -1,5 +1,9 @@
 """SFC 周度须申报淡仓 CSV 客户端（权威独占，源验证 §4）。
 
+2026-09 SFC 网站改版：CSV 路径按报告期（position_date）组织（旧规则按公布日
+= 报告期+7 天的周五，已 302→/404 全部失效）。未公布/缺失文件返回 302 跟随到
+200 text/html 的 404 页，必须先验载荷再解析。
+
 PIT 铁律：available_at = published_at（响应 Last-Modified）；header 不可得时
 退化为 first_observed_at；绝不按 position_date + 固定天数倒推。
 """
@@ -9,7 +13,6 @@ from __future__ import annotations
 import email.utils
 import io
 import logging
-from datetime import timedelta
 
 import pandas as pd
 
@@ -32,10 +35,10 @@ _RENAME = {
 }
 
 
-def candidate_pub_dates(position_date) -> list[pd.Timestamp]:
-    """正常公布日 = position_date+7（周五）；假日周向前后漂移，按可能性排序。"""
-    base = pd.Timestamp(position_date) + pd.Timedelta(days=7)
-    return [base + timedelta(days=o) for o in (0, 1, -1, 2, 3, -2, 4, 5)]
+def sfc_url_for(position_date) -> str:
+    """报告期确定的唯一 URL（改版后路径日期 = position_date 本身）。"""
+    pos = pd.Timestamp(position_date)
+    return URL_TMPL.format(y=pos.year, m=pos.month, d=pos.day, pos=pos)
 
 
 def _parse_last_modified(value: str | None) -> pd.Timestamp | None:
@@ -54,27 +57,30 @@ def parse_sfc_csv(content: bytes) -> pd.DataFrame:
     return df[["code", "name", "position_date", "short_shares", "short_amount_hkd"]]
 
 
+def _looks_like_sfc_csv(resp) -> bool:
+    """302→HTML 404 页（最终 200 text/html）不是数据：验 Content-Type 与首行。"""
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if "html" in ctype:
+        return False
+    return resp.content.lstrip().startswith(b"Date")
+
+
 def fetch_sfc_week(position_date, *, fetched_at: pd.Timestamp) -> pd.DataFrame | None:
-    """抓取某 position_date 一期报告；所有候选 404 → None（假日周/未公布）。"""
-    for pub in candidate_pub_dates(position_date):
-        url = URL_TMPL.format(
-            y=pub.year, m=pub.month, d=pub.day, pos=pd.Timestamp(position_date)
-        )
-        resp = http_client.try_get(url, headers=HKEX_HEADERS, timeout=120)
-        if resp is None:
-            continue
-        df = parse_sfc_csv(resp.content)
-        published_at = _parse_last_modified(resp.headers.get("Last-Modified"))
-        available_at = published_at if published_at is not None else fetched_at
-        df["published_at"] = pd.Series(
-            [published_at if published_at is not None else pd.NaT] * len(df),
-            dtype="datetime64[ns, Asia/Shanghai]",
-        )
-        df["first_observed_at"] = fetched_at
-        df["available_at"] = available_at
-        df["source_date"] = pd.Timestamp(position_date)
-        df["fetched_at"] = fetched_at
-        df["source"] = "sfc"
-        df["source_version"] = "sfc_spr_csv_v1"
-        return df
-    return None
+    """抓取某 position_date 一期报告；404/未公布（含 HTML 404 页）→ None。"""
+    resp = http_client.try_get(sfc_url_for(position_date), headers=HKEX_HEADERS, timeout=120)
+    if resp is None or not _looks_like_sfc_csv(resp):
+        return None
+    df = parse_sfc_csv(resp.content)
+    published_at = _parse_last_modified(resp.headers.get("Last-Modified"))
+    available_at = published_at if published_at is not None else fetched_at
+    df["published_at"] = pd.Series(
+        [published_at if published_at is not None else pd.NaT] * len(df),
+        dtype="datetime64[ns, Asia/Shanghai]",
+    )
+    df["first_observed_at"] = fetched_at
+    df["available_at"] = available_at
+    df["source_date"] = pd.Timestamp(position_date)
+    df["fetched_at"] = fetched_at
+    df["source"] = "sfc"
+    df["source_version"] = "sfc_spr_csv_v2"
+    return df

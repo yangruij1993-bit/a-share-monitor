@@ -1,4 +1,8 @@
-"""sfc_client：候选 URL 探测、Last-Modified→published_at、CSV 解析。"""
+"""sfc_client：新 URL 规则、HTML 404 防御、Last-Modified→published_at、CSV 解析。
+
+2026-09 SFC 网站改版：CSV 路径按报告期（position_date）组织，不再按公布日；
+未公布/缺失文件的请求 302 → HTML 404 页（requests 跟随后最终 200 text/html）。
+"""
 
 import pandas as pd
 
@@ -11,36 +15,39 @@ CSV_BODY = (
     "11/09/2026,700,TENCENT,91234567,28738234567\n"
 )
 
+HTML_404_BODY = b"<!DOCTYPE html>\n<html><head><title>404 | SFC</title></head></html>"
+
 
 class _Resp:
-    def __init__(self, content, last_modified=None):
+    def __init__(self, content, last_modified=None, content_type="text/plain"):
         self.status_code = 200
         self.content = content
-        self.headers = {"Last-Modified": last_modified} if last_modified else {}
+        self.headers = {"Content-Type": content_type}
+        if last_modified:
+            self.headers["Last-Modified"] = last_modified
 
 
-def test_candidate_pub_dates_centered_on_plus7():
-    cands = sfc_client.candidate_pub_dates(pd.Timestamp("2026-09-11"))
-    assert cands[0] == pd.Timestamp("2026-09-18")  # 正常周五公布
-    assert all(c.weekday() == 4 for c in cands[:1])
-    assert len(cands) >= 6  # 假日周漂移余量
+def test_sfc_url_uses_position_date_path():
+    # 改版后路径 = 报告期本身（旧规则为公布日 = 报告期+7 天的周五）
+    assert sfc_client.sfc_url_for(pd.Timestamp("2026-09-11")) == (
+        "https://www.sfc.hk/-/media/EN/pdf/spr/2026/09/11/"
+        "Short_Position_Reporting_Aggregated_Data_20260911.csv"
+    )
 
 
 def test_fetch_sfc_week_parses_and_stamps(monkeypatch):
-    state = {"n": 0}
+    seen = {}
 
     def fake_try_get(url, headers=None, **k):
-        state["n"] += 1
-        if "2026/09/18" in url:  # 首个候选命中
-            return _Resp(CSV_BODY.encode(), "Fri, 18 Sep 2026 07:41:00 GMT")
-        return None
+        seen["url"] = url
+        return _Resp(CSV_BODY.encode(), "Fri, 18 Sep 2026 07:41:00 GMT")
 
     monkeypatch.setattr(sfc_client.http_client, "try_get", fake_try_get)
     df = sfc_client.fetch_sfc_week(
         pd.Timestamp("2026-09-11"),
         fetched_at=pd.Timestamp("2026-09-18 18:45", tz="Asia/Shanghai"),
     )
-    assert state["n"] == 1
+    assert "2026/09/11" in seen["url"]  # 单一确定性 URL，无需候选探测
     assert len(df) == 2
     r = df[df["code"] == "00700"].iloc[0]
     assert r["short_shares"] == 91234567
@@ -52,7 +59,7 @@ def test_fetch_sfc_week_parses_and_stamps(monkeypatch):
     assert r["available_at"] == r["published_at"]
 
 
-def test_fetch_sfc_week_returns_none_when_all_404(monkeypatch):
+def test_fetch_sfc_week_returns_none_when_404(monkeypatch):
     monkeypatch.setattr(
         sfc_client.http_client, "try_get", lambda url, headers=None, **k: None
     )
@@ -61,6 +68,20 @@ def test_fetch_sfc_week_returns_none_when_all_404(monkeypatch):
         fetched_at=pd.Timestamp("2027-01-02 18:45", tz="Asia/Shanghai"),
     )
     assert out is None  # 假日周无报告（源验证 §4）
+
+
+def test_fetch_sfc_week_html_404_returns_none(monkeypatch):
+    """改版后未公布文件 → 302 跟随到 200 text/html 的 404 页：必须判 None，不得进入解析。"""
+    monkeypatch.setattr(
+        sfc_client.http_client,
+        "try_get",
+        lambda url, headers=None, **k: _Resp(HTML_404_BODY, content_type="text/html"),
+    )
+    out = sfc_client.fetch_sfc_week(
+        pd.Timestamp("2026-09-18"),  # 报告期 09-18 应于 09-25 公布，尚未存在
+        fetched_at=pd.Timestamp("2026-09-22 18:45", tz="Asia/Shanghai"),
+    )
+    assert out is None
 
 
 def test_fetch_sfc_week_missing_last_modified_falls_back(monkeypatch):
