@@ -57,3 +57,15 @@ def test_fetch_sfc_week_returns_none_when_all_404(monkeypatch):
         pd.Timestamp("2026-12-25"),
         fetched_at=pd.Timestamp("2027-01-02 18:45", tz="Asia/Shanghai"))
     assert out is None  # 假日周无报告（源验证 §4）
+
+
+def test_fetch_sfc_week_missing_last_modified_falls_back(monkeypatch):
+    """无 Last-Modified 头 → published_at=NaT（tz-aware 列）、available_at 退化为 fetched_at。"""
+    monkeypatch.setattr(
+        sfc_client.http_client, "try_get",
+        lambda url, headers=None, **k: _Resp(CSV_BODY.encode()))
+    fetched = pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai")
+    df = sfc_client.fetch_sfc_week(pd.Timestamp("2026-09-11"), fetched_at=fetched)
+    assert str(df["published_at"].dtype) == "datetime64[ns, Asia/Shanghai]"
+    assert df["published_at"].isna().all()
+    assert (df["available_at"] == fetched).all()

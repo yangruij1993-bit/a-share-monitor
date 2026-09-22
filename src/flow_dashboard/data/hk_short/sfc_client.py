@@ -62,7 +62,10 @@ def fetch_sfc_week(position_date, *, fetched_at: pd.Timestamp) -> pd.DataFrame |
         df = parse_sfc_csv(resp.content)
         published_at = _parse_last_modified(resp.headers.get("Last-Modified"))
         available_at = published_at if published_at is not None else fetched_at
-        df["published_at"] = published_at
+        df["published_at"] = pd.Series(
+            [published_at if published_at is not None else pd.NaT] * len(df),
+            dtype="datetime64[ns, Asia/Shanghai]",
+        )
         df["first_observed_at"] = fetched_at
         df["available_at"] = available_at
         df["source_date"] = pd.Timestamp(position_date)
