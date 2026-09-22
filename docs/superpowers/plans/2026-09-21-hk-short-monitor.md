@@ -150,7 +150,7 @@ HK_INDEX_SECIDS = {"HSI": "100.HSI", "HSTECH": "124.HSTECH"}
 
 def _hk_secid(hk_code: str) -> str:
     """'0700.HK' -> '116.00700'。"""
-    return f"116.{hk_code.split('.')[0]}"
+    return f"116.{hk_code.split('.')[0].zfill(5)}"
 
 
 # §6.2 首版冻结阈值。校准只能改这里的数值 + 对应测试，不得改状态优先级。
@@ -3135,7 +3135,7 @@ def _price_direction(kline: pd.DataFrame) -> str:
 
 
 def _secid_of(code: str) -> str:
-    return f"116.{code.split('.')[0]}"
+    return f"116.{code.split('.')[0].zfill(5)}"
 
 
 def _build_context(*, as_of, cdir: Path) -> dict:
@@ -3824,7 +3824,7 @@ def _fetch_hk_increments(as_of) -> None:
     load_hkex_dayquot(as_of=as_of)
     load_sfc_weekly(as_of=as_of)
     secids = list(HK_INDEX_SECIDS.values()) + [
-        f"116.{c.split('.')[0]}" for _, c in HK_WATCH_LIST]
+        f"116.{c.split('.')[0].zfill(5)}" for _, c in HK_WATCH_LIST]
     load_hk_kline(as_of=as_of, secids=secids)
     load_total_shares(as_of=as_of, codes=[c for _, c in HK_WATCH_LIST])
     load_etf_master(as_of=as_of)
@@ -4062,7 +4062,7 @@ def main(argv: list[str] | None = None) -> int:
 
     watch_codes = [c for _, c in HK_WATCH_LIST]
     secids = list(HK_INDEX_SECIDS.values()) + [
-        f"116.{c.split('.')[0]}" for c in watch_codes]
+        f"116.{c.split('.')[0].zfill(5)}" for c in watch_codes]
 
     L = _loaders()
     em_start = as_of.tz_localize(None).normalize() - pd.Timedelta(days=args.em_days)

@@ -51,10 +51,9 @@ def ensure_output_dirs() -> None:
 
 def ensure_dirs() -> None:
     """幂等创建项目所需目录。"""
-    for d in (DATA_DIR, CACHE_DIR, EVIDENCE_DIR, LOG_DIR):
+    for d in (DATA_DIR, CACHE_DIR, EVIDENCE_DIR, LOG_DIR, HK_SHORT_CACHE_DIR):
         d.mkdir(parents=True, exist_ok=True)
     ensure_output_dirs()
-    HK_SHORT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +79,7 @@ HK_INDEX_SECIDS = {"HSI": "100.HSI", "HSTECH": "124.HSTECH"}
 
 def _hk_secid(hk_code: str) -> str:
     """'0700.HK' -> '116.00700'。"""
-    return f"116.{hk_code.split('.')[0]}"
+    return f"116.{hk_code.split('.')[0].zfill(5)}"
 
 
 # §6.2 首版冻结阈值。校准只能改这里的数值 + 对应测试，不得改状态优先级。

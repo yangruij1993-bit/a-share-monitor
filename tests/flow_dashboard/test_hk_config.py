@@ -11,6 +11,14 @@ def test_hk_watch_list_frozen():
 
 def test_hk_thresholds_frozen():
     t = config.HK_THRESHOLDS
+    assert set(t) == {
+        "mkt_sfc_delta_bp", "mkt_sfc_breadth_pos", "mkt_sfc_breadth_neg",
+        "stock_sfc_delta_bp", "weekly_intensity_high", "ssr_pct_high",
+        "price_ret_bp", "participation_high", "etf_interference",
+        "ssr_pct_min_obs", "ssr_pct_window", "daily_intensity_window",
+        "weekly_window_days", "weekly_n_windows", "sfc_min_comparable",
+        "sfc_min_coverage", "corp_action_price_jump", "sfc_grace_trading_days",
+    }
     assert t["mkt_sfc_delta_bp"] == 3.0
     assert t["stock_sfc_delta_bp"] == 5.0
     assert t["weekly_intensity_high"] == 1.25
@@ -25,5 +33,8 @@ def test_hk_thresholds_frozen():
 
 
 def test_hk_cache_dir_and_secids():
+    assert config.HK_SHORT_CACHE_DIR == config.DATA_DIR / "hk_short" / "cache"
     assert config.HK_SHORT_CACHE_DIR.name == "cache"
     assert config.HK_INDEX_SECIDS == {"HSI": "100.HSI", "HSTECH": "124.HSTECH"}
+    assert config._hk_secid("0700.HK") == "116.00700"
+    assert config._hk_secid("2800.HK") == "116.02800"
