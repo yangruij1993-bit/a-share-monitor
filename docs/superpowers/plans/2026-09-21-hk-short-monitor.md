@@ -3542,6 +3542,13 @@ git add src/flow_dashboard/render/panels_hk_short.py tests/flow_dashboard/test_h
 git commit -m "feat(hk-short): cache-only hk tab panels - conclusion, overview, watch tables, top20"
 ```
 
+**勘误（质量评审与实施加固记录，b3b63e8 + aceac5b，后续任务依赖不得回退）**：
+1. 计划 fixture 缺陷：`_build_cache` 中 00700 两期 SFC `short_amount_hkd` 原文均为 3e8，隐含价 16.48→8.24 跳变 100% 会触发公司行动守卫 → 断言"多空分歧扩大"不可达。修正：09-04 期 amount 改 1.5e8（隐含价 ~16.4926 两期恒定），delta_bp = +10.0（≥5bp → oi=up，价涨 → 多空分歧扩大）。
+2. 实施偏离（规格审查已核准的最小修复）：SHARES fixture 行包 `_audit`；watch 面板 id 用 `code.split(".")[0]`（ETF → `panel-hk-watch-2800`，与规格 `{code5}` 等价）。
+3. Critical（aceac5b）：SFC 缓存为空时 `pd.DataFrame(columns=[...])` 的 trade_date 为 object dtype，与主表 merge 抛 `ValueError`（真实新装机仅-EM 状态整个 tab 崩溃）→ 空 SFC 分支键列显式 `datetime64[ns]`；补回归测试 `test_render_without_sfc_cache_does_not_crash`（`_build_cache` 加 `with_sfc` 参数）。
+4. Minor 清理（aceac5b）：`_price_direction` 删恒真分支；`_render_market_chart` 删被 `apply_theme(y_title)` 覆盖的 yaxis 重复配置（yaxis2 保留）；`weekly_intensity` 显式传 `window_days`/`n_windows`（取自 T）。Step 4 计数勘正：**5 passed**（4 原测试 + 空缓存回归）。
+5. 已知豁免留待后续：`_secid_of`/`_code5` 三处重复、`_stock_status` 重复过滤、TOP20 断言锚定弱、hk_date 在 HKEX-only 场景返回空串而非 None——Task 13 集成时注意区分。
+
 ### Task 13: pipeline.py 集成 tabs + report_date 双日期
 
 **Files:**
