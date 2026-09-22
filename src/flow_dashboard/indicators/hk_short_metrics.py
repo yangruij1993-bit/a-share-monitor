@@ -32,15 +32,16 @@ def percentile_rank(series: pd.Series, window: int = 60,
     s = pd.Series(series).dropna().astype(float)
     if len(s) < min_obs + 1:
         return None
-    prev = s.iloc[-window - 1:-1].dropna()
+    prev = s.iloc[-window - 1:-1]
     if len(prev) < min_obs:
         return None
     return float((prev < s.iloc[-1]).mean() * 100.0)
 
 
 def ret_n(close: pd.Series, n: int = 5) -> float | None:
+    """n 日收益率（基期价 <=0 → None）。"""
     s = pd.Series(close).dropna().astype(float)
-    if len(s) < n + 1 or s.iloc[-1 - n] == 0:
+    if len(s) < n + 1 or s.iloc[-1 - n] <= 0:
         return None
     return float(s.iloc[-1] / s.iloc[-1 - n] - 1.0)
 
@@ -99,3 +100,78 @@ def stock_daily(em_df: pd.DataFrame, code: str) -> pd.DataFrame:
         return df
     df["ssr"] = df["short_amount"] / df["turnover"]
     return df
+
+
+def sfc_stock_metrics(sfc_df: pd.DataFrame, code: str, total_shares: float,
+                      *, jump_threshold: float = 0.20) -> dict:
+    """个股 SFC：淡仓/总股本比例周环比（bp）及 4 周斜率。隐含价跳变>阈值=公司行动嫌疑→unavailable。"""
+    if sfc_df is None or sfc_df.empty or not total_shares:
+        return {"available": False}
+    code5 = str(code).split(".")[0].zfill(5)
+    df = sfc_df[sfc_df["code"] == code5].sort_values("position_date")
+    if len(df) < 2:
+        return {"available": False}
+    latest, prev = df.iloc[-1], df.iloc[-2]
+    implied_now = latest["short_amount_hkd"] / latest["short_shares"]
+    implied_prev = prev["short_amount_hkd"] / prev["short_shares"]
+    if implied_prev > 0 and abs(implied_now / implied_prev - 1.0) > jump_threshold:
+        return {"available": False, "corp_action_suspect": True}
+    p_now = latest["short_shares"] / total_shares
+    p_prev = prev["short_shares"] / total_shares
+    delta_4w = None
+    if len(df) >= 5:
+        p_4w = df.iloc[-5]["short_shares"] / total_shares
+        delta_4w = float((p_now - p_4w) * 1e4)
+    return {
+        "available": True,
+        "latest_pd": pd.Timestamp(latest["position_date"]),
+        "prev_pd": pd.Timestamp(prev["position_date"]),
+        "latest_shares": float(latest["short_shares"]),
+        "delta_bp": float((p_now - p_prev) * 1e4),
+        "delta_4w_bp": delta_4w,
+    }
+
+
+def sfc_market_metrics(sfc_df: pd.DataFrame, shares_df: pd.DataFrame, *,
+                       min_comparable: int = 100, min_coverage: float = 0.80) -> dict:
+    """市场 SFC：连续两期可比集合上 Σ淡仓金额/Σ市值 的比例差与扩散度。
+
+    市值 = 隐含价（金额/股数）× 总股本（f84 缓存）。覆盖率 = 可比集合 t0 市值
+    / 上一期全报告 t0 市值；不足门槛 → unavailable（设计 §6.1）。
+    """
+    if sfc_df is None or sfc_df.empty or shares_df is None or shares_df.empty:
+        return {"available": False}
+    pds = sorted(pd.to_datetime(sfc_df["position_date"].unique()))
+    if len(pds) < 2:
+        return {"available": False}
+    latest, prev = pds[-1], pds[-2]
+    cols = ["code", "short_shares", "short_amount_hkd"]
+    cur = sfc_df[sfc_df["position_date"] == latest][cols]
+    old = sfc_df[sfc_df["position_date"] == prev][cols]
+    m = cur.merge(old, on="code", suffixes=("_t1", "_t0"))
+    sh = shares_df[["code", "total_shares"]].drop_duplicates("code")
+    m = m.merge(sh, on="code", how="left")
+    m = m[(m["total_shares"] > 0)
+          & (m["short_shares_t0"] > 0) & (m["short_shares_t1"] > 0)]
+    if len(m) < min_comparable:
+        return {"available": False, "n_comparable": int(len(m))}
+    m = m.copy()
+    m["mcap_t1"] = m["short_amount_hkd_t1"] / m["short_shares_t1"] * m["total_shares"]
+    m["mcap_t0"] = m["short_amount_hkd_t0"] / m["short_shares_t0"] * m["total_shares"]
+    old_full = old.merge(sh, on="code", how="left")
+    old_full = old_full[old_full["total_shares"] > 0]
+    denom = ((old_full["short_amount_hkd"] / old_full["short_shares"])
+             * old_full["total_shares"]).sum()
+    coverage = float(m["mcap_t0"].sum() / denom) if denom > 0 else None
+    if coverage is None or coverage < min_coverage:
+        return {"available": False, "n_comparable": int(len(m)), "coverage": coverage}
+    ratio_t1 = m["short_amount_hkd_t1"].sum() / m["mcap_t1"].sum()
+    ratio_t0 = m["short_amount_hkd_t0"].sum() / m["mcap_t0"].sum()
+    return {
+        "available": True,
+        "latest_pd": latest, "prev_pd": prev,
+        "delta_bps": float((ratio_t1 - ratio_t0) * 1e4),
+        "breadth": float((m["short_shares_t1"] > m["short_shares_t0"]).mean()),
+        "n_comparable": int(len(m)),
+        "coverage": coverage,
+    }
