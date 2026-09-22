@@ -4048,6 +4048,11 @@ git add src/flow_dashboard/hk_short_pipeline.py scripts/flow_dashboard/run_hk_sh
 git commit -m "feat(hk-short): 18:45 eod runner sharing RUNNERS_LOCK with calendar short-circuit"
 ```
 
+**勘误（Task 13 质量评审遗留修复，Task 14 必须一并完成，后续任务依赖不得回退）**：
+1. Task 13 质量评审批准但遗留一个 Important 问题：`_run_eod_preview_inner` 中 `_render_hk_tab_for_pipeline(as_of)` 调用（pipeline.py:493 附近）未包 try/except——缓存 parquet 损坏导致 render 抛异常时会穿透整个发布路径、跳过 `publish_archive`，A股当日报告整体丢失，违背设计 §3"港股故障不拖垮 A股"。Task 14 实施时必须一并加固：将该调用包 try/except——异常时 log warning 并以"数据待更新"横幅与 None 作为 hk_body/hk_data_date 继续发布。
+2. 补测试 `test_hk_tab_render_failure_does_not_block_ashare_publish`（追加到 test_hk_pipeline.py）：`_mock_ashare_empty` + patch `_render_hk_tab_for_pipeline` 抛 RuntimeError，断言发布照常完成（返回的 archive path 存在、HTML 含 A股 tab）且 manifest `panel_status.hk_data_date is None`、HTML 含"数据待更新"。
+3. 该加固改动落在 `src/flow_dashboard/pipeline.py`，与 Task 14 一并提交（git add 需含 pipeline.py 与 test_hk_pipeline.py）；Step 4 期望相应变为 **9 passed**（Task 13 的 3 + 本任务原 5 + 加固 1）。
+
 ---
 
 ### Task 15: backfill_hk_short.py 一次性回补 CLI
