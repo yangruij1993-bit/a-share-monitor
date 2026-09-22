@@ -2087,7 +2087,15 @@ def load_etf_master(*, as_of, allow_fetch=True, cache_dir=None):
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m pytest tests/flow_dashboard/test_hk_loaders.py -v`
-Expected: 9 passed
+Expected: 11 passed（9 个原测试 + 负缓存过期 + SFC quality_flags，质量评审加固；原文"9"不含加固测试）
+
+**勘误（质量评审加固，实施时保留，commit 2ac4ed7）**：
+1. `_write` 改为原子写：先写 `path.with_suffix(path.suffix + ".tmp")` 再 `os.replace`——崩溃中断 to_parquet 会留下截断文件，使后续每次 `_read` 永久抛错、阻塞发布（Important）。
+2. `test_hkex_restated_override` 预先种入 09-17 旧行后再抓取，钉死 `_merge` 三契约：新值覆盖（short_shares 1050000→1100000）、`first_observed_at` 保留最早（09-17 19:00 而非 FETCHED）、keys 去重后仅一行——原测试从空缓存起步，三条均未被断言（Important）。
+3. `load_total_shares` 在 `drop_duplicates(subset=["code"], keep="last")` 前显式 `sort_values("available_at", kind="stable")`——不依赖 `_merge` 行序副作用（Important）。
+4. `load_sfc_weekly` 抓取成功后补 `df_w["quality_flags"] = ""`——SFC 帧自带审计列但缺该列，与其他缓存 parquet schema 不一致，Task 12 渲染统一访问会 KeyError。
+5. `load_etf_master` 补返回类型注解 `tuple[pd.DataFrame, pd.Timestamp]`，`_parse_eff(eff)` 只算一次。
+6. 补两个测试：`test_sfc_negative_cache_expires_after_14_days`（checked_at 超 14 天后重探）、`test_sfc_fetch_adds_quality_flags`。
 
 - [ ] **Step 5: Commit**
 
