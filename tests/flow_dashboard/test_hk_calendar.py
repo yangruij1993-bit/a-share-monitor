@@ -44,3 +44,16 @@ def test_recent_sfc_position_dates():
     # 周三 -> 本周五还没到，只能取上周五
     out2 = cal.recent_sfc_position_dates("2026-09-16", n=1)
     assert out2[0] == pd.Timestamp("2026-09-11")
+
+
+def test_time_aware_semantics_pinned():
+    # EOD runner 契约：带时间且当日为交易日 → 当日计入（Task 14 依赖）
+    assert cal.latest_trading_day_on_or_before(
+        pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-21")
+    assert cal.latest_trading_day_on_or_before(
+        pd.Timestamp("2026-09-18 16:10", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-18")
+    # 带时间但当日为假日 → 前一交易日
+    assert cal.latest_trading_day_on_or_before(
+        pd.Timestamp("2026-10-01 18:45", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-30")
+    # 复活节周（周五 04-03 受难日为假日）→ 最近已完成周取周四
+    assert cal.recent_sfc_position_dates("2026-04-07", n=1)[0] == pd.Timestamp("2026-04-02")

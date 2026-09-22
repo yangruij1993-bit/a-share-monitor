@@ -1,7 +1,7 @@
 """香港交易日历（2026 假日硬编码）+ SFC 宽限期。
 
 设计 §6.3：宽限期 = position_date 后第 5 个香港交易日（EOD）。
-注意：2026-04-04 清明为周日、补假未定 → 未列入；该周如遇空数据由 loader 容错。
+注意：2026-04-04 为复活节周六；清明 2026-04-05 为周日、补假未定 → 未列入；该周如遇空数据由 loader 容错。
 年份 > 2026：假日表缺失，回退仅过滤周末并 log 告警（届时须更新假日表）。
 
 时间语义（与 runner 18:45 收盘后触发对齐）：
@@ -21,7 +21,7 @@ HK_HOLIDAYS_2026 = {
     "2026-01-01",
     # 农历年初二/三/四（首日 02-17 周二）
     "2026-02-17", "2026-02-18", "2026-02-19",
-    # 耶稣受难日 / 复活节周一
+    # 耶稣受难日 / 复活节周六 / 复活节周一
     "2026-04-03", "2026-04-04", "2026-04-06",
     # 劳动节 / 佛诞 / 特区成立纪念日
     "2026-05-01", "2026-05-25", "2026-06-19", "2026-07-01",
@@ -34,11 +34,15 @@ HK_HOLIDAYS_2026 = {
 _warned = {"flag": False}
 
 
-def _norm(d) -> pd.Timestamp:
-    ts = pd.Timestamp(d)
+def _to_naive(ts: pd.Timestamp) -> pd.Timestamp:
+    """tz-aware → Asia/Shanghai 语义的 naive 时间戳（保留时间分量）。"""
     if ts.tzinfo is not None:
         ts = ts.tz_convert("Asia/Shanghai").tz_localize(None)
-    return ts.normalize()
+    return ts
+
+
+def _norm(d) -> pd.Timestamp:
+    return _to_naive(pd.Timestamp(d)).normalize()
 
 
 def is_hk_trading_day(d) -> bool:
@@ -60,9 +64,7 @@ def latest_trading_day_on_or_before(d) -> pd.Timestamp:
     假日 → 前一交易日）。带时间输入且当日为交易日：当日计入（EOD runner
     收盘后调用；@live 冒烟传 now-1d 带时间，同样落到上一完整交易日）。
     """
-    ts = pd.Timestamp(d)
-    if ts.tzinfo is not None:
-        ts = ts.tz_convert("Asia/Shanghai").tz_localize(None)
+    ts = _to_naive(pd.Timestamp(d))
     day = ts.normalize()
     if ts != day and is_hk_trading_day(day):
         return day
