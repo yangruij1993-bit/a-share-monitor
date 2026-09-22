@@ -3015,6 +3015,12 @@ git add src/flow_dashboard/render/theme.py tests/flow_dashboard/test_hk_theme_ta
 git commit -m "feat(hk-short): top-level tabs in html skeleton with hash memory and plotly resize"
 ```
 
+**勘误（实施与质量评审加固记录，2313bc9 + a1f6526，后续任务依赖不得回退）**：
+1. tab CSS 用条件变量 `tab_css` 仅在 tabs 模式注入 `<style>`——原参考代码无条件追加会令 legacy 模式出现 `tab-bar` 字样，直接违反 `test_legacy_skeleton_has_no_tabs` 与设计 §3"A股调用行为完全不变"。
+2. `test_tabs_html_escaping` 的 `assert "a<x" not in html` 原文不可满足（内嵌 plotly 压缩 bundle 含字面 `a<x`）。改为：先以 re.sub 剥离 `<script>` 块再作负断言，并新增正断言 `assert "a&lt;x" in markup`（id 确被转义）。
+3. 质量评审 Important 修复（a1f6526）：`_tabFromHash` 在 hash 不匹配 `#tab-` 时**保持当前 tab**（`if (!m) return;`），不得回退第一个 tab——否则点击 tab 内 section-nav 锚点（如 `#section-hk-conclusion`）会把用户强切回 A股 tab；初始无 hash 时依赖服务端 active 类（首 tab 已标记）。补测试 `test_tab_js_keeps_current_tab_on_non_tab_hash`（对 JS 函数体做文本契约钉死，JS 不可单测）。
+4. 顺带删除 theme.py 既有无用导入 `from pathlib import Path`（F401）并应用 ruff format（既有代码重排，值不变）；tabs=None 路径输出 sha256 前后字节级一致。Step 4 计数勘正：新 **4 passed**（3 原测试 + 守卫测试），theme/skeleton 回归 11 passed。
+
 ---
 
 ### Task 12: panels_hk_short.py 港股 tab 渲染
