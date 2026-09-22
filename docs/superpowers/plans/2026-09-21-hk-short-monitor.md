@@ -4301,6 +4301,11 @@ git add tests/flow_dashboard/test_hk_live.py
 git commit -m "test(hk-short): live smoke tests for all frozen sources"
 ```
 
+**勘误（实施与双阶段审查记录，d9fb438，收尾步骤依赖不得回退）**：
+1. 计划前提错误：仓库 conftest 此前**并无** `--run-live` 逻辑（计划"conftest 已有逻辑"不实，原逻辑只有 tushare token 门槛）。实施时在 `tests/flow_dashboard/conftest.py` 新增 `pytest_addoption` 注册 `--run-live`（store_true）+ 收集期对 live 标记测试默认 skip（reason="live 测试默认跳过；--run-live 显式开启"）+ 开启后保留原 token 门槛作第二层。副作用：5 个既有 live 标记文件（test_tushare_*/test_sina_* 等）从"有 token 即跑"变为"须显式 `--run-live`"——规范审查裁决为计划意图内的正确泛化。
+2. 已知限制（质量审查批准留待跟进，不影响默认流程与已验证路径）：a) `pytest_addoption` 位于非根 conftest，`--run-live` 仅当初始参数含 `tests/flow_dashboard` 路径时可解析（本计划所有命令均带该路径，成立）；b) `test_live_sfc_latest_week` 在报告未公布窗口（约 position_date+7 之前）空转通过——计划冻结文本如此，后续可改为遍历 `recent_sfc_position_dates(now, 2)` 要求至少一期非 None；c) f84 `== 9095085993` 精确等值断言会因腾讯回购注销而漂移，届时按实测更新并同步 source-validation.md。
+3. 规范审查确认的 4 处偏离（均合规）：删除未用导入 `HK_WATCH_LIST`（F401）；ruff format 重排；conftest 顺带修复既有 lint（未用 `import os`、导入排序）；commit 信息照抄计划原文。
+
 ---
 
 ## 收尾
