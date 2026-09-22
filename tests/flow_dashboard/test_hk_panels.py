@@ -25,7 +25,7 @@ def _audit(df, avail=AVAIL_EM):
     return df
 
 
-def _build_cache(tmp_path):
+def _build_cache(tmp_path, with_sfc=True):
     days = [
         pd.Timestamp(d)
         for d in ("2026-09-11", "2026-09-16", "2026-09-17", "2026-09-18")
@@ -172,7 +172,19 @@ def _build_cache(tmp_path):
                 "source_version": "v1",
             }
         )
-    loaders._write(pd.DataFrame(sfc_rows), tmp_path / loaders.SFC_FILE)
+    if with_sfc:
+        loaders._write(pd.DataFrame(sfc_rows), tmp_path / loaders.SFC_FILE)
+
+
+def test_render_without_sfc_cache_does_not_crash(tmp_path):
+    """回归：仅有 EM 等缓存、SFC 缓存缺失（新安装/回补未完成）时，watch 表
+    merge 的键列 dtype 必须一致，不得抛 ValueError（设计 §3 部分缓存也渲染）。"""
+    _build_cache(tmp_path, with_sfc=False)
+    html, hk_date = render_hk_short_body(as_of=AS_OF, cache_dir=tmp_path)
+    assert hk_date == "2026-09-18"
+    assert "市场结论" in html
+    # watch 表照常渲染（11 列表头在场，未平仓两列为空）
+    assert "未平仓卖空期末值·股数" in html
 
 
 def test_empty_cache_returns_banner_and_none_date(tmp_path):

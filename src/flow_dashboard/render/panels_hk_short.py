@@ -88,11 +88,7 @@ def _price_direction(kline: pd.DataFrame) -> str:
             "close"
         ]
         rets.append(mx.ret_n(s, n=5))
-    return mx.price_direction(
-        rets[0] if len(rets) > 0 else None,
-        rets[1] if len(rets) > 1 else None,
-        threshold_bp=T["price_ret_bp"],
-    )
+    return mx.price_direction(rets[0], rets[1], threshold_bp=T["price_ret_bp"])
 
 
 def _secid_of(code: str) -> str:
@@ -115,7 +111,15 @@ def _build_context(*, as_of, cdir: Path) -> dict:
     shares = load_total_shares(as_of=as_of, codes=[], allow_fetch=False, cache_dir=cdir)
 
     mkt = mx.market_daily_aggregate(em, full_days) if not em.empty else pd.DataFrame()
-    weekly_i = mx.weekly_intensity(mkt["short_amount"]) if not mkt.empty else None
+    weekly_i = (
+        mx.weekly_intensity(
+            mkt["short_amount"],
+            window_days=T["weekly_window_days"],
+            n_windows=T["weekly_n_windows"],
+        )
+        if not mkt.empty
+        else None
+    )
     ssr_pct = (
         mx.percentile_rank(
             mkt["ssr"], window=T["ssr_pct_window"], min_obs=T["ssr_pct_min_obs"]
@@ -319,7 +323,7 @@ def _render_market_chart(ctx: dict) -> str:
             yaxis="y2",
         )
     fig.update_layout(
-        yaxis={"title": "沽空额(亿港元)", "gridcolor": COLORS["grid"]},
+        # yaxis 由 apply_theme(y_title=...) 统一配置；此处只配副轴 yaxis2
         yaxis2={
             "title": "SSR% / 指数(归一)",
             "overlaying": "y",
@@ -388,7 +392,15 @@ def _watch_stock_df(code: str, ctx: dict) -> pd.DataFrame:
         df = short_df.copy()
         df["close"] = df["volume"] = df["amount"] = df["chg_pct"] = float("nan")
     if ctx["sfc"].empty:
-        oi = pd.DataFrame(columns=["trade_date", "oi_shares", "oi_amount"])
+        # 空帧键列必须同为 datetime，否则与上面的 datetime 合并键 merge 抛
+        # ValueError（pandas 拒绝 datetime64 与 object 列做键）
+        oi = pd.DataFrame(
+            {
+                "trade_date": pd.Series(dtype="datetime64[ns]"),
+                "oi_shares": pd.Series(dtype="float64"),
+                "oi_amount": pd.Series(dtype="float64"),
+            }
+        )
     else:
         oi = ctx["sfc"][ctx["sfc"]["code"] == code5][
             ["position_date", "short_shares", "short_amount_hkd"]
