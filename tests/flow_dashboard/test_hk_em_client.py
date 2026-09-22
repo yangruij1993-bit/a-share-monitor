@@ -123,6 +123,15 @@ def test_fetch_sellshort_day_paginates(monkeypatch):
     assert len(df) == 3  # 第 1 页 2 行 + 第 2 页 1 行
 
 
+def test_fetch_sellshort_day_all_pages_empty_returns_empty_df(monkeypatch):
+    # 数据未发布/非交易日：页面解析 0 行 → 必须返回空 DataFrame，不得抛错
+    monkeypatch.setattr(
+        em_client, "_fetch_page_text", lambda page, params: "<html><table><tbody></tbody></table></html>"
+    )
+    df = em_client.fetch_sellshort_day("2026-09-22")
+    assert df.empty
+
+
 def test_fetch_sellshort_stock_range_query(monkeypatch):
     calls = []
 

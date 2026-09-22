@@ -79,7 +79,10 @@ def _collect_pages(params: dict) -> pd.DataFrame:
     frames = [parse_sellshort_html(p1)]
     for p in range(2, _max_page(p1) + 1):
         frames.append(parse_sellshort_html(_fetch_page_text(p, params)))
-    return pd.concat([f for f in frames if not f.empty], ignore_index=True)
+    non_empty = [f for f in frames if not f.empty]
+    if not non_empty:
+        return pd.DataFrame()
+    return pd.concat(non_empty, ignore_index=True)
 
 
 def fetch_sellshort_day(date_str: str) -> pd.DataFrame:
