@@ -2502,6 +2502,12 @@ git add src/flow_dashboard/indicators/hk_short_metrics.py tests/flow_dashboard/t
 git commit -m "feat(hk-short): sfc stock/market metrics on comparable set with corp-action guard"
 ```
 
+**勘误（质量评审与实施加固记录，c119c4a + 1d34ff1，后续任务依赖不得回退）**：
+1. 计划内部矛盾（P5，实施时按修正后测试为准）：`test_sfc_stock_metrics_four_week_delta` 原文首次调用 `total_shares=1000.0` 与断言 +10bp/+40bp 不自洽（(140−130)/1000×1e4=100bp）。修正：首次调用改 `total_shares=10000.0`（out2 保留 1000.0）；实现不变。
+2. 指标加固（1d34ff1）：`sfc_stock_metrics` 开头守卫 `not total_shares` 扩为 `not total_shares or pd.isna(total_shares)`——NaN 为真值漏过守卫会产生 NaN delta_bp，使 `_stock_oi` 误判 flat 而非 unavailable；补测试 `test_sfc_stock_metrics_nan_total_shares_unavailable`。
+3. 小修：`percentile_rank` 删除 prev 上冗余二次 `dropna()`；`ret_n` 分母守卫 `== 0` → `<= 0` 并补 docstring；补分位并列语义测试（严格小于计次）；`weekly_intensity` 观测不足断言钉死 `len==65`。
+4. Step 4 计数勘正：**14 passed**（7 个 Task 8 + P3 并列语义 + 5 个 SFC + P4 + NaN 守卫）。
+
 ---
 
 ---
@@ -2629,18 +2635,21 @@ def test_stock_conclusion_and_oi_bands():
 
 
 def test_sfc_is_pending_grace_window():
-    # 09-11(周五) 报告：宽限期 = 后第 5 个交易日 09-18 EOD
+    # 缺失的下一个应公布周 = 09-18（最新已完成周），其宽限期至 09-25 EOD
     cached = pd.Timestamp("2026-09-11")
-    # 09-21 缓存只有 09-11：最新已完成周 = 09-18，已超宽限期 → pending
+    # 09-21（宽限期内，09-18 报告未超宽限期）→ 不 pending（与 Task 14 一致）
+    assert not st.sfc_is_pending(latest_cached_pd=cached,
+                                 as_of=pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai"))
+    # 09-28（09-18 宽限期已过仍缺）→ pending
     assert st.sfc_is_pending(latest_cached_pd=cached,
-                             as_of=pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai"))
-    # 09-16（宽限期内）→ 不 pending
+                             as_of=pd.Timestamp("2026-09-28 18:45", tz="Asia/Shanghai"))
+    # 09-16（本周五 09-18 未结束，最新已完成周=09-11，缓存已含）→ 不 pending
     assert not st.sfc_is_pending(latest_cached_pd=cached,
                                  as_of=pd.Timestamp("2026-09-16 10:00", tz="Asia/Shanghai"))
     # 缓存已含最新周（09-18）→ 不 pending
     assert not st.sfc_is_pending(latest_cached_pd=pd.Timestamp("2026-09-18"),
                                  as_of=pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai"))
-    # 无任何缓存且超宽限 → pending
+    # 无任何缓存 → pending（数据缺失）
     assert st.sfc_is_pending(latest_cached_pd=None,
                              as_of=pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai"))
 ```
@@ -2791,26 +2800,33 @@ def stock_conclusion(
 
 
 def sfc_is_pending(*, latest_cached_pd, as_of) -> bool:
-    """最新已完成交易周的报告是否已超宽限期（设计 §6.3）。
+    """缓存是否缺失已超宽限期的 SFC 周报（设计 §6.3，勘误修正版）。
 
-    latest_cached_pd=None 表示缓存里没有任何一期。宽限期内返回 False。
+    从最新缓存一期之后的第一个应公布周 W（recent 列表中 > 缓存期的最小一周）
+    起算：W 的宽限期（position_date 后第 5 个香港交易日 EOD）已过仍缺该期
+    → True。宽限期内沿用最新已公布一期，不加"待确认"。
+    latest_cached_pd=None（缓存里没有任何一期）→ 恒 True（数据缺失）。
     """
+    if latest_cached_pd is None or pd.isna(latest_cached_pd):
+        return True
     ts = pd.Timestamp(as_of)
     ts = ts.tz_convert("Asia/Shanghai").tz_localize(None) if ts.tzinfo else ts
-    expected = recent_sfc_position_dates(ts, n=1)
-    if not expected:
+    recent = recent_sfc_position_dates(ts, n=8)
+    if not recent:
         return False
-    newest = expected[0]
-    if latest_cached_pd is not None and not pd.isna(latest_cached_pd) \
-            and pd.Timestamp(latest_cached_pd) >= newest:
-        return False
-    return ts > sfc_grace_deadline(newest)
+    cached = pd.Timestamp(latest_cached_pd).normalize()
+    newer = [w for w in recent if w > cached]
+    if not newer:
+        return False  # 已含最新已完成周
+    return ts > sfc_grace_deadline(min(newer))
 ```
 
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m pytest tests/flow_dashboard/test_hk_state.py -v`
 Expected: 11 passed
+
+**勘误（实施前修正，后续任务依赖不得回退）**：计划原 `sfc_is_pending` 参考实现与其验收测试 `test_sfc_is_pending_grace_window`、Task 14 的 `test_sfc_missing_grace_window` 三方矛盾（同一输入 09-21/cached=09-11 一处断言 pending、一处断言 not-missing）。按设计文档 §6.3（"宽限期内沿用最新已公布一期并显示其报告日，不加'待确认'；超过宽限期仍缺新一期时，SFC 证据记为 unavailable，并添加后缀"）修正为：**从最新缓存期之后的第一个应公布周 W 起算宽限**（`recent_sfc_position_dates` 结果中 > 缓存期的最小一周）；`latest_cached_pd=None` → 恒 pending（数据缺失）。已同步改写参考实现与该测试（判 Task 14 + 设计文档胜出）。修正后行为：报告正常公布日（=宽限期末日）过后仍缺才加后缀；缓存落后多周时按最早缺失周判定。
 
 - [ ] **Step 5: Commit**
 
