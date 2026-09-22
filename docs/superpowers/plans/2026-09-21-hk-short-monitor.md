@@ -468,6 +468,19 @@ def test_recent_sfc_position_dates():
     # 周三 -> 本周五还没到，只能取上周五
     out2 = cal.recent_sfc_position_dates("2026-09-16", n=1)
     assert out2[0] == pd.Timestamp("2026-09-11")
+
+
+def test_time_aware_semantics_pinned():
+    # EOD runner 契约：带时间且当日为交易日 → 当日计入（Task 14 依赖）
+    assert cal.latest_trading_day_on_or_before(
+        pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-21")
+    assert cal.latest_trading_day_on_or_before(
+        pd.Timestamp("2026-09-18 16:10", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-18")
+    # 带时间但当日为假日 → 前一交易日
+    assert cal.latest_trading_day_on_or_before(
+        pd.Timestamp("2026-10-01 18:45", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-30")
+    # 复活节周（周五 04-03 受难日为假日）→ 最近已完成周取周四
+    assert cal.recent_sfc_position_dates("2026-04-07", n=1)[0] == pd.Timestamp("2026-04-02")
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -481,7 +494,7 @@ Expected: FAIL（ModuleNotFoundError）
 """香港交易日历（2026 假日硬编码）+ SFC 宽限期。
 
 设计 §6.3：宽限期 = position_date 后第 5 个香港交易日（EOD）。
-注意：2026-04-04 清明为周日、补假未定 → 未列入；该周如遇空数据由 loader 容错。
+注意：2026-04-04 为复活节周六；清明 2026-04-05 为周日、补假未定 → 未列入；该周如遇空数据由 loader 容错。
 年份 > 2026：假日表缺失，回退仅过滤周末并 log 告警（届时须更新假日表）。
 """
 from __future__ import annotations
@@ -591,7 +604,7 @@ def recent_sfc_position_dates(as_of, n: int = 8) -> list[pd.Timestamp]:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m pytest tests/flow_dashboard/test_hk_calendar.py -v`
-Expected: 6 passed
+Expected: 7 passed（6 个原测试 + 时间语义钉死测试，质量评审补）
 
 - [ ] **Step 5: Commit**
 
