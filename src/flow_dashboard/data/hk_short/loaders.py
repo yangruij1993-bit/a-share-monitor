@@ -10,6 +10,7 @@ Asia/Shanghai）：
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -61,10 +62,13 @@ def _read(path: Path) -> pd.DataFrame:
 
 
 def _write(df: pd.DataFrame, path: Path) -> None:
+    """原子写：先落临时文件再 os.replace，避免崩溃留下截断 parquet 毁掉后续读取。"""
     if df.empty:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=False)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    df.to_parquet(tmp, index=False)
+    os.replace(tmp, path)
 
 
 def _pit(df: pd.DataFrame, as_of) -> pd.DataFrame:
@@ -312,6 +316,7 @@ def load_sfc_weekly(*, as_of, weeks=8, allow_fetch=True, cache_dir=None) -> pd.D
             new_none.append({"position_date": pos,
                              "checked_at": as_of_ts.tz_localize(None)})
             continue
+        df_w["quality_flags"] = ""  # 客户端自注解帧缺此列，统一缓存 schema
         frames.append(df_w)
     if frames:
         cached = _merge(cached, pd.concat(frames, ignore_index=True),
@@ -393,7 +398,8 @@ def load_total_shares(*, as_of, codes, refresh=False,
         _write(cached, path)
     if cached.empty:
         return cached
-    latest = cached.drop_duplicates(subset=["code"], keep="last", ignore_index=True)
+    latest = (cached.sort_values("available_at", kind="stable")
+                .drop_duplicates(subset=["code"], keep="last", ignore_index=True))
     return _pit(latest, as_of_ts)
 
 
@@ -402,7 +408,7 @@ def _parse_eff(eff_str: str):
     return pd.Timestamp(int(m.group(3)), int(m.group(2)), int(m.group(1))) if m else pd.NaT
 
 
-def load_etf_master(*, as_of, allow_fetch=True, cache_dir=None):
+def load_etf_master(*, as_of, allow_fetch=True, cache_dir=None) -> tuple[pd.DataFrame, pd.Timestamp]:
     """LOS 主表（>7 天刷新；失败退回缓存）。返回 (los_df, effective_date)。"""
     cdir = Path(cache_dir) if cache_dir else HK_SHORT_CACHE_DIR
     as_of_ts = _as_of_ts(as_of)
@@ -422,9 +428,10 @@ def load_etf_master(*, as_of, allow_fetch=True, cache_dir=None):
             los = _annotate(los, source="hkex", version="hkex_los_v1",
                             available_at=as_of_ts, fetched_at=as_of_ts)
             los["source_date"] = _naive_sh(as_of_ts).normalize()
-            los["effective_date"] = _parse_eff(eff)
+            eff_ts = _parse_eff(eff)
+            los["effective_date"] = eff_ts
             _write(los, path)
-            return _pit(los, as_of_ts), _parse_eff(eff)
+            return _pit(los, as_of_ts), eff_ts
     eff = (pd.Timestamp(cached["effective_date"].iloc[0])
            if not cached.empty else pd.NaT)
     return _pit(cached, as_of_ts), eff

@@ -93,6 +93,21 @@ def test_hkex_restated_override(tmp_path, monkeypatch):
         adjusted["short_shares"] = [1100000.0]  # T-1 修正值
         return pd.concat([daily, adjusted], ignore_index=True)
 
+    # 预置旧的 09-17 行：short_shares/available_at 均应被 restated 行覆盖，
+    # 唯 first_observed_at 保留最早（_merge 契约）。
+    seed = pd.DataFrame([{
+        "code": "00001", "name": "CKH",
+        "trade_date": pd.Timestamp("2026-09-17"),
+        "short_shares": 1050000.0, "short_amount": 7000000.0,
+        "total_shares_traded": 8000000.0, "turnover": 600000000.0,
+        "source_date": pd.Timestamp("2026-09-17"), "fetched_at": FETCHED,
+        "source": "hkex", "source_version": "hkex_dayquot_v1",
+        "available_at": pd.Timestamp("2026-09-17 17:30", tz="Asia/Shanghai"),
+        "first_observed_at": pd.Timestamp("2026-09-17 19:00", tz="Asia/Shanghai"),
+        "quality_flags": "",
+    }])
+    loaders._write(seed, tmp_path / loaders.HKEX_FILE)
+
     monkeypatch.setattr(loaders.hkex_client, "fetch_dayquot", fake_dayquot)
     out = load_hkex_dayquot(as_of=FETCHED, start="2026-09-18", cache_dir=tmp_path)
     r18 = out[(out["code"] == "00001")
@@ -103,6 +118,11 @@ def test_hkex_restated_override(tmp_path, monkeypatch):
     assert r17["quality_flags"] == "restated"
     # restated 行 available_at = 公布日 17:30（非数据日）——17 日 18:00 还看不到修正
     assert r17["available_at"] == pd.Timestamp("2026-09-18 17:30", tz="Asia/Shanghai")
+    assert r17["short_shares"] == 1100000.0  # 新值整行覆盖旧值
+    assert r17["first_observed_at"] == pd.Timestamp("2026-09-17 19:00",
+                                                    tz="Asia/Shanghai")  # 最早观测保留
+    assert len(out[(out["code"] == "00001")
+                   & (out["trade_date"] == pd.Timestamp("2026-09-17"))]) == 1  # 无重复行
     early = load_hkex_dayquot(
         as_of=pd.Timestamp("2026-09-17 18:00", tz="Asia/Shanghai"),
         allow_fetch=False, cache_dir=tmp_path)
@@ -149,6 +169,47 @@ def test_sfc_pit_visibility(tmp_path):
         as_of=pd.Timestamp("2026-09-18 16:00", tz="Asia/Shanghai"),
         allow_fetch=False, cache_dir=tmp_path)
     assert before.empty and not after.empty  # published_at 是 PIT 唯一依据
+
+
+def test_sfc_fetch_adds_quality_flags(tmp_path, monkeypatch):
+    """抓取帧自带注解但缺 quality_flags —— loader 须补齐，缓存 schema 与其余一致。"""
+    def fake_fetch(pos_date, fetched_at=None):
+        pos = pd.Timestamp(pos_date)
+        pub = pd.Timestamp("2026-09-18 15:41", tz="Asia/Shanghai")
+        return pd.DataFrame({
+            "code": ["00700"], "name": ["TENCENT"], "position_date": [pos],
+            "short_shares": [9.1e7], "short_amount_hkd": [2.87e10],
+            "published_at": [pub], "first_observed_at": [fetched_at],
+            "available_at": [pub], "source_date": [pos], "fetched_at": [fetched_at],
+            "source": ["sfc"], "source_version": ["sfc_spr_csv_v1"],
+        })  # 注意：无 quality_flags 列
+
+    monkeypatch.setattr(loaders.sfc_client, "fetch_sfc_week", fake_fetch)
+    as_of = pd.Timestamp("2026-09-21 19:00", tz="Asia/Shanghai")
+    out = load_sfc_weekly(as_of=as_of, weeks=1, cache_dir=tmp_path)
+    assert "quality_flags" in out.columns and (out["quality_flags"] == "").all()
+    cached = pd.read_parquet(tmp_path / loaders.SFC_FILE)
+    assert "quality_flags" in cached.columns
+
+
+def test_sfc_negative_cache_expires_after_14_days(tmp_path, monkeypatch):
+    """负缓存仅 14 天有效：过期 position_date 必须重新探测。"""
+    loaders._write(_sfc_one_week(), tmp_path / loaders.SFC_FILE)  # 09-11 正缓存
+    loaders._write(pd.DataFrame({
+        "position_date": [pd.Timestamp("2026-09-18"), pd.Timestamp("2026-09-04")],
+        "checked_at": [pd.Timestamp("2026-09-05")] * 2,  # 距 as_of 16 天 → 过期
+    }), tmp_path / loaders.SFC_NONE_FILE)
+    probed = []
+
+    def fake_fetch(pos_date, fetched_at=None):
+        probed.append(pd.Timestamp(pos_date))
+        return None
+
+    monkeypatch.setattr(loaders.sfc_client, "fetch_sfc_week", fake_fetch)
+    as_of = pd.Timestamp("2026-09-21 19:00", tz="Asia/Shanghai")
+    load_sfc_weekly(as_of=as_of, weeks=3, cache_dir=tmp_path)
+    # 09-11 走正缓存；09-18/09-04 负缓存已过期 → 重新探测
+    assert set(probed) == {pd.Timestamp("2026-09-18"), pd.Timestamp("2026-09-04")}
 
 
 def test_kline_incremental(tmp_path, monkeypatch):
