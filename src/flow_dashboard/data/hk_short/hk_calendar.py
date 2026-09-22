@@ -8,6 +8,7 @@
 - 纯日期输入（午夜）= 问"当日开盘前"，当日不计入（周一 → 上周五）；
 - 带具体时间的时间戳且当日为交易日 → 当日计入（EOD runner / @live 冒烟）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,15 +21,24 @@ HK_HOLIDAYS_2026 = {
     # 元旦
     "2026-01-01",
     # 农历年初二/三/四（首日 02-17 周二）
-    "2026-02-17", "2026-02-18", "2026-02-19",
+    "2026-02-17",
+    "2026-02-18",
+    "2026-02-19",
     # 耶稣受难日 / 复活节周六 / 复活节周一
-    "2026-04-03", "2026-04-04", "2026-04-06",
+    "2026-04-03",
+    "2026-04-04",
+    "2026-04-06",
     # 劳动节 / 佛诞 / 特区成立纪念日
-    "2026-05-01", "2026-05-25", "2026-06-19", "2026-07-01",
+    "2026-05-01",
+    "2026-05-25",
+    "2026-06-19",
+    "2026-07-01",
     # 国庆 / 重阳
-    "2026-10-01", "2026-10-19",
+    "2026-10-01",
+    "2026-10-19",
     # 圣诞 / 圣诞翌日
-    "2026-12-25", "2026-12-28",
+    "2026-12-25",
+    "2026-12-28",
 }
 
 _warned = {"flag": False}
@@ -52,7 +62,10 @@ def is_hk_trading_day(d) -> bool:
     if ts.year == 2026:
         return ts.strftime("%Y-%m-%d") not in HK_HOLIDAYS_2026
     if ts.year > 2026 and not _warned["flag"]:
-        log.warning("HK holiday table only covers 2026; %s falls back to weekday-only", ts.date())
+        log.warning(
+            "HK holiday table only covers 2026; %s falls back to weekday-only",
+            ts.date(),
+        )
         _warned["flag"] = True
     return True
 

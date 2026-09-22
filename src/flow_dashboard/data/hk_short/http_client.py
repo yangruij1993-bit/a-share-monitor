@@ -2,12 +2,13 @@
 
 源验证 §1：东财 push2/hk 系接口间歇性空响应，实测 sleep 5-8s 后重试成功。
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import requests
 
@@ -35,8 +36,13 @@ def fetch_text(
             last = e
         if attempt < max_retries:
             wait = backoff_base * (2 ** (attempt - 1))
-            log.warning("fetch %s attempt %d failed (%s); backoff %.0fs",
-                        url[:120], attempt, last, wait)
+            log.warning(
+                "fetch %s attempt %d failed (%s); backoff %.0fs",
+                url[:120],
+                attempt,
+                last,
+                wait,
+            )
             time.sleep(wait)
     raise RuntimeError(f"fetch failed after {max_retries} retries: {url} last={last}")
 
@@ -80,8 +86,9 @@ def fetch_json(
     last: Exception | str = "?"
     for attempt in range(1, max_retries + 1):
         try:
-            text = fetch_text(url, params=params, headers=headers,
-                              max_retries=1, timeout=timeout)
+            text = fetch_text(
+                url, params=params, headers=headers, max_retries=1, timeout=timeout
+            )
             j = json.loads(text)
             if validate is not None and not validate(j):
                 raise ValueError(f"payload validation failed: {text[:120]}")
@@ -90,7 +97,14 @@ def fetch_json(
             last = e
         if attempt < max_retries:
             wait = backoff_base * (2 ** (attempt - 1))
-            log.warning("fetch_json %s attempt %d failed (%s); backoff %.0fs",
-                        url[:120], attempt, last, wait)
+            log.warning(
+                "fetch_json %s attempt %d failed (%s); backoff %.0fs",
+                url[:120],
+                attempt,
+                last,
+                wait,
+            )
             time.sleep(wait)
-    raise RuntimeError(f"fetch_json failed after {max_retries} retries: {url} last={last}")
+    raise RuntimeError(
+        f"fetch_json failed after {max_retries} retries: {url} last={last}"
+    )

@@ -1,4 +1,5 @@
 """sfc_client：候选 URL 探测、Last-Modified→published_at、CSV 解析。"""
+
 import pandas as pd
 
 from flow_dashboard.data.hk_short import sfc_client
@@ -22,7 +23,7 @@ def test_candidate_pub_dates_centered_on_plus7():
     cands = sfc_client.candidate_pub_dates(pd.Timestamp("2026-09-11"))
     assert cands[0] == pd.Timestamp("2026-09-18")  # 正常周五公布
     assert all(c.weekday() == 4 for c in cands[:1])
-    assert len(cands) >= 6                          # 假日周漂移余量
+    assert len(cands) >= 6  # 假日周漂移余量
 
 
 def test_fetch_sfc_week_parses_and_stamps(monkeypatch):
@@ -37,7 +38,8 @@ def test_fetch_sfc_week_parses_and_stamps(monkeypatch):
     monkeypatch.setattr(sfc_client.http_client, "try_get", fake_try_get)
     df = sfc_client.fetch_sfc_week(
         pd.Timestamp("2026-09-11"),
-        fetched_at=pd.Timestamp("2026-09-18 18:45", tz="Asia/Shanghai"))
+        fetched_at=pd.Timestamp("2026-09-18 18:45", tz="Asia/Shanghai"),
+    )
     assert state["n"] == 1
     assert len(df) == 2
     r = df[df["code"] == "00700"].iloc[0]
@@ -51,19 +53,23 @@ def test_fetch_sfc_week_parses_and_stamps(monkeypatch):
 
 
 def test_fetch_sfc_week_returns_none_when_all_404(monkeypatch):
-    monkeypatch.setattr(sfc_client.http_client, "try_get",
-                        lambda url, headers=None, **k: None)
+    monkeypatch.setattr(
+        sfc_client.http_client, "try_get", lambda url, headers=None, **k: None
+    )
     out = sfc_client.fetch_sfc_week(
         pd.Timestamp("2026-12-25"),
-        fetched_at=pd.Timestamp("2027-01-02 18:45", tz="Asia/Shanghai"))
+        fetched_at=pd.Timestamp("2027-01-02 18:45", tz="Asia/Shanghai"),
+    )
     assert out is None  # 假日周无报告（源验证 §4）
 
 
 def test_fetch_sfc_week_missing_last_modified_falls_back(monkeypatch):
     """无 Last-Modified 头 → published_at=NaT（tz-aware 列）、available_at 退化为 fetched_at。"""
     monkeypatch.setattr(
-        sfc_client.http_client, "try_get",
-        lambda url, headers=None, **k: _Resp(CSV_BODY.encode()))
+        sfc_client.http_client,
+        "try_get",
+        lambda url, headers=None, **k: _Resp(CSV_BODY.encode()),
+    )
     fetched = pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai")
     df = sfc_client.fetch_sfc_week(pd.Timestamp("2026-09-11"), fetched_at=fetched)
     assert str(df["published_at"].dtype) == "datetime64[ns, Asia/Shanghai]"

@@ -1,23 +1,44 @@
 """hk_short 配置契约测试。"""
+
 from flow_dashboard import config
 
 
 def test_hk_watch_list_frozen():
     assert len(config.HK_WATCH_LIST) == 8
     codes = [c for _, c in config.HK_WATCH_LIST]
-    assert codes == ["0700.HK", "9988.HK", "3690.HK", "1810.HK",
-                     "0981.HK", "9992.HK", "2800.HK", "3033.HK"]
+    assert codes == [
+        "0700.HK",
+        "9988.HK",
+        "3690.HK",
+        "1810.HK",
+        "0981.HK",
+        "9992.HK",
+        "2800.HK",
+        "3033.HK",
+    ]
 
 
 def test_hk_thresholds_frozen():
     t = config.HK_THRESHOLDS
     assert set(t) == {
-        "mkt_sfc_delta_bp", "mkt_sfc_breadth_pos", "mkt_sfc_breadth_neg",
-        "stock_sfc_delta_bp", "weekly_intensity_high", "ssr_pct_high",
-        "price_ret_bp", "participation_high", "etf_interference",
-        "ssr_pct_min_obs", "ssr_pct_window", "daily_intensity_window",
-        "weekly_window_days", "weekly_n_windows", "sfc_min_comparable",
-        "sfc_min_coverage", "corp_action_price_jump", "sfc_grace_trading_days",
+        "mkt_sfc_delta_bp",
+        "mkt_sfc_breadth_pos",
+        "mkt_sfc_breadth_neg",
+        "stock_sfc_delta_bp",
+        "weekly_intensity_high",
+        "ssr_pct_high",
+        "price_ret_bp",
+        "participation_high",
+        "etf_interference",
+        "ssr_pct_min_obs",
+        "ssr_pct_window",
+        "daily_intensity_window",
+        "weekly_window_days",
+        "weekly_n_windows",
+        "sfc_min_comparable",
+        "sfc_min_coverage",
+        "corp_action_price_jump",
+        "sfc_grace_trading_days",
     }
     assert t["mkt_sfc_delta_bp"] == 3.0
     assert t["stock_sfc_delta_bp"] == 5.0

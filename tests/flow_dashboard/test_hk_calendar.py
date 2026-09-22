@@ -1,4 +1,5 @@
 """香港交易日历：周末/假日、宽限期、SFC position_date 枚举。"""
+
 import pandas as pd
 
 from flow_dashboard.data.hk_short import hk_calendar as cal
@@ -9,25 +10,37 @@ def test_weekend_and_holiday():
     assert not cal.is_hk_trading_day("2026-09-20")  # 周日
     assert not cal.is_hk_trading_day("2026-10-01")  # 国庆（HK 假日）
     assert not cal.is_hk_trading_day("2026-02-18")  # 农历新年
-    assert cal.is_hk_trading_day("2026-09-18")      # 周五
-    assert cal.is_hk_trading_day("2026-02-16")      # 新年假期前的周一
+    assert cal.is_hk_trading_day("2026-09-18")  # 周五
+    assert cal.is_hk_trading_day("2026-02-16")  # 新年假期前的周一
 
 
 def test_latest_trading_day_on_or_before():
     # 周一 -> 上周五；假日 -> 前一交易日
-    assert cal.latest_trading_day_on_or_before("2026-09-21") == pd.Timestamp("2026-09-18")
-    assert cal.latest_trading_day_on_or_before("2026-10-01") == pd.Timestamp("2026-09-30")
+    assert cal.latest_trading_day_on_or_before("2026-09-21") == pd.Timestamp(
+        "2026-09-18"
+    )
+    assert cal.latest_trading_day_on_or_before("2026-10-01") == pd.Timestamp(
+        "2026-09-30"
+    )
 
 
 def test_prev_trading_day():
     assert cal.prev_trading_day("2026-09-18") == pd.Timestamp("2026-09-17")
-    assert cal.prev_trading_day("2026-02-17") == pd.Timestamp("2026-02-16")  # 跨农历假期
+    assert cal.prev_trading_day("2026-02-17") == pd.Timestamp(
+        "2026-02-16"
+    )  # 跨农历假期
 
 
 def test_next_trading_days_for_grace_period():
     # position_date=2026-09-11(周五) -> 后 5 个交易日 = 14,15,16,17,18
     days = cal.next_trk_days("2026-09-11", 5)
-    assert [d.strftime("%m-%d") for d in days] == ["09-14", "09-15", "09-16", "09-17", "09-18"]
+    assert [d.strftime("%m-%d") for d in days] == [
+        "09-14",
+        "09-15",
+        "09-16",
+        "09-17",
+        "09-18",
+    ]
 
 
 def test_grace_deadline_is_eod_of_5th_trading_day():
@@ -49,11 +62,16 @@ def test_recent_sfc_position_dates():
 def test_time_aware_semantics_pinned():
     # EOD runner 契约：带时间且当日为交易日 → 当日计入（Task 14 依赖）
     assert cal.latest_trading_day_on_or_before(
-        pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-21")
+        pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai")
+    ) == pd.Timestamp("2026-09-21")
     assert cal.latest_trading_day_on_or_before(
-        pd.Timestamp("2026-09-18 16:10", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-18")
+        pd.Timestamp("2026-09-18 16:10", tz="Asia/Shanghai")
+    ) == pd.Timestamp("2026-09-18")
     # 带时间但当日为假日 → 前一交易日
     assert cal.latest_trading_day_on_or_before(
-        pd.Timestamp("2026-10-01 18:45", tz="Asia/Shanghai")) == pd.Timestamp("2026-09-30")
+        pd.Timestamp("2026-10-01 18:45", tz="Asia/Shanghai")
+    ) == pd.Timestamp("2026-09-30")
     # 复活节周（周五 04-03 受难日为假日）→ 最近已完成周取周四
-    assert cal.recent_sfc_position_dates("2026-04-07", n=1)[0] == pd.Timestamp("2026-04-02")
+    assert cal.recent_sfc_position_dates("2026-04-07", n=1)[0] == pd.Timestamp(
+        "2026-04-02"
+    )

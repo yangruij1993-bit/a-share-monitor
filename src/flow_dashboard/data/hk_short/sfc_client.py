@@ -3,6 +3,7 @@
 PIT 铁律：available_at = published_at（响应 Last-Modified）；header 不可得时
 退化为 first_observed_at；绝不按 position_date + 固定天数倒推。
 """
+
 from __future__ import annotations
 
 import email.utils
@@ -17,8 +18,10 @@ from flow_dashboard.data.hk_short import http_client
 
 log = logging.getLogger(__name__)
 
-URL_TMPL = ("https://www.sfc.hk/-/media/EN/pdf/spr/{y}/{m:02d}/{d:02d}/"
-            "Short_Position_Reporting_Aggregated_Data_{pos:%Y%m%d}.csv")
+URL_TMPL = (
+    "https://www.sfc.hk/-/media/EN/pdf/spr/{y}/{m:02d}/{d:02d}/"
+    "Short_Position_Reporting_Aggregated_Data_{pos:%Y%m%d}.csv"
+)
 
 _RENAME = {
     "Date": "report_date",
@@ -54,8 +57,9 @@ def parse_sfc_csv(content: bytes) -> pd.DataFrame:
 def fetch_sfc_week(position_date, *, fetched_at: pd.Timestamp) -> pd.DataFrame | None:
     """抓取某 position_date 一期报告；所有候选 404 → None（假日周/未公布）。"""
     for pub in candidate_pub_dates(position_date):
-        url = URL_TMPL.format(y=pub.year, m=pub.month, d=pub.day,
-                              pos=pd.Timestamp(position_date))
+        url = URL_TMPL.format(
+            y=pub.year, m=pub.month, d=pub.day, pos=pd.Timestamp(position_date)
+        )
         resp = http_client.try_get(url, headers=HKEX_HEADERS, timeout=120)
         if resp is None:
             continue

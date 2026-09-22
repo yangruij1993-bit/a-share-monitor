@@ -494,8 +494,10 @@ def _run_eod_preview_inner(
         hk_body, hk_data_date = _render_hk_tab_for_pipeline(as_of)
     except Exception:  # 港股渲染故障不得阻塞 A股 发布（设计 §3 隔离）
         log.warning("hk tab render failed; publishing with banner", exc_info=True)
-        hk_body = ('<div class="panel stale">⚠️ 港股沽空数据待更新 — 渲染异常，'
-                   '请检查 hk_short 缓存与日志。</div>')
+        hk_body = (
+            '<div class="panel stale">⚠️ 港股沽空数据待更新 — 渲染异常，'
+            "请检查 hk_short 缓存与日志。</div>"
+        )
         hk_data_date = None
     full_html = build_html_skeleton(
         title=f"市场流动性日报 — {report_date}{title_suffix}",

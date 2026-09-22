@@ -1,5 +1,7 @@
 """http_client：重试、404 探测、JSON 校验。"""
+
 import json
+
 import pytest
 
 from flow_dashboard.data.hk_short import http_client
@@ -31,22 +33,26 @@ def test_fetch_text_retries_on_empty_then_succeeds(monkeypatch):
 
 
 def test_fetch_text_raises_after_max_retries(monkeypatch):
-    monkeypatch.setattr(http_client.requests, "get",
-                        lambda *a, **k: _Resp(500, text="boom"))
+    monkeypatch.setattr(
+        http_client.requests, "get", lambda *a, **k: _Resp(500, text="boom")
+    )
     monkeypatch.setattr(http_client.time, "sleep", lambda s: None)
     with pytest.raises(RuntimeError):
         http_client.fetch_text("http://x", max_retries=2, backoff_base=0)
 
 
 def test_try_get_returns_none_on_404(monkeypatch):
-    monkeypatch.setattr(http_client.requests, "get",
-                        lambda *a, **k: _Resp(404))
+    monkeypatch.setattr(http_client.requests, "get", lambda *a, **k: _Resp(404))
     assert http_client.try_get("http://x") is None
 
 
 def test_try_get_returns_response_with_last_modified(monkeypatch):
-    r = _Resp(200, text="a,b", content=b"a,b",
-              headers={"Last-Modified": "Fri, 18 Sep 2026 07:41:00 GMT"})
+    r = _Resp(
+        200,
+        text="a,b",
+        content=b"a,b",
+        headers={"Last-Modified": "Fri, 18 Sep 2026 07:41:00 GMT"},
+    )
     monkeypatch.setattr(http_client.requests, "get", lambda *a, **k: r)
     out = http_client.try_get("http://x")
     assert out is not None

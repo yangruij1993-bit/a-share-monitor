@@ -3,6 +3,7 @@
 源验证 §1（sellshort HTML）与 §5（push2his kline / push2 f84）。
 口径冻结：sellshort 只含主板+GEM 股票（含 RMB 柜台），不含 ETF/ETP/REIT/L&I。
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,17 +21,17 @@ BASE = "https://hk.eastmoney.com"
 # 源验证 §1 实测行结构：序号|代码锚点|名称td(被行内通配跳过再单独抓)|最新价|沽空数量|沽空均价|沽空金额|总成交金额|SSR%|日期
 # 行内通配用 (?:(?!</tr>).)*? 收紧：格式漂移时不允许回溯跨过 </tr> 拼接相邻行（质量评审加固）
 SELLSHORT_ROW_RE = re.compile(
-    r'<tr>\s*<td><span>\d+</span></td>\s*<td>\s*<a[^>]*>(\d{5})</a>\s*</td>(?:(?!</tr>).)*?'
-    r'<td><span>([\d.]+)</span></td>\s*'          # 最新价（丢弃）
-    r'<td><span>([\d,.]+)\s*</span></td>\s*'       # 沽空数量
-    r'<td><span>([\d.]+)</span></td>\s*'           # 沽空平均价
-    r'<td><span>([\d.万亿]+)</span></td>\s*'       # 沽空金额
-    r'<td><span>([\d.万亿]+)</span></td>\s*'       # 总成交金额
-    r'<td><span>([\d.]+)%</span></td>\s*'          # SSR
-    r'<td><span>(\d{4}-\d{2}-\d{2})</span></td>',  # 日期
-    re.S,
+    r"<tr>\s*<td><span>\d+</span></td>\s*<td>\s*<a[^>]*>(\d{5})</a>\s*</td>(?:(?!</tr>).)*?"
+    r"<td><span>([\d.]+)</span></td>\s*"  # 最新价（丢弃）
+    r"<td><span>([\d,.]+)\s*</span></td>\s*"  # 沽空数量
+    r"<td><span>([\d.]+)</span></td>\s*"  # 沽空平均价
+    r"<td><span>([\d.万亿]+)</span></td>\s*"  # 沽空金额
+    r"<td><span>([\d.万亿]+)</span></td>\s*"  # 总成交金额
+    r"<td><span>([\d.]+)%</span></td>\s*"  # SSR
+    r"<td><span>(\d{4}-\d{2}-\d{2})</span></td>",  # 日期
+    re.DOTALL,
 )
-NAME_RE = re.compile(r'</a>\s*</td>\s*<td[^>]*>\s*<a[^>]*>([^<]+)</a>', re.S)
+NAME_RE = re.compile(r"</a>\s*</td>\s*<td[^>]*>\s*<a[^>]*>([^<]+)</a>", re.DOTALL)
 
 
 def parse_amount(text: str) -> float:
@@ -47,16 +48,18 @@ def parse_sellshort_html(html_text: str) -> pd.DataFrame:
     for m in SELLSHORT_ROW_RE.finditer(html_text):
         code, _last_price, shares, avg_px, amt, tov, ssr, d = m.groups()
         nm = NAME_RE.search(m.group(0))
-        rows.append({
-            "code": code,
-            "name": nm.group(1).strip() if nm else "",
-            "short_shares": float(shares.replace(",", "")),
-            "short_avg_price": float(avg_px),
-            "short_amount": parse_amount(amt),
-            "turnover": parse_amount(tov),
-            "ssr_pct": float(ssr),
-            "source_date": d,
-        })
+        rows.append(
+            {
+                "code": code,
+                "name": nm.group(1).strip() if nm else "",
+                "short_shares": float(shares.replace(",", "")),
+                "short_avg_price": float(avg_px),
+                "short_amount": parse_amount(amt),
+                "turnover": parse_amount(tov),
+                "ssr_pct": float(ssr),
+                "source_date": d,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -92,17 +95,21 @@ def fetch_sellshort_day(date_str: str) -> pd.DataFrame:
 
 def fetch_sellshort_stock(code: str, start, end) -> pd.DataFrame:
     """单只股票区间历史：一次区间查询跨日翻页（行内自带日期列，每页 50 行）。"""
-    out = _collect_pages({
-        "code": code,
-        "sdate": pd.Timestamp(start).strftime("%Y-%m-%d"),
-        "edate": pd.Timestamp(end).strftime("%Y-%m-%d"),
-    })
+    out = _collect_pages(
+        {
+            "code": code,
+            "sdate": pd.Timestamp(start).strftime("%Y-%m-%d"),
+            "edate": pd.Timestamp(end).strftime("%Y-%m-%d"),
+        }
+    )
     if not out.empty:
         out["trade_date"] = pd.to_datetime(out["source_date"])
     return out
 
 
-def fetch_kline(secid: str, beg, end, *, now: pd.Timestamp | None = None) -> pd.DataFrame:
+def fetch_kline(
+    secid: str, beg, end, *, now: pd.Timestamp | None = None
+) -> pd.DataFrame:
     """日 K（不复权）。丢弃未完成当日 K 线（16:10 HKT 前，源验证 §5）。"""
     j = http_client.fetch_json(
         "https://push2his.eastmoney.com/api/qt/stock/kline/get",
@@ -110,7 +117,8 @@ def fetch_kline(secid: str, beg, end, *, now: pd.Timestamp | None = None) -> pd.
             "secid": secid,
             "fields1": "f1,f2,f3",
             "fields2": "f51,f52,f53,f54,f55,f56,f57",
-            "klt": "101", "fqt": "0",
+            "klt": "101",
+            "fqt": "0",
             "beg": pd.Timestamp(beg).strftime("%Y%m%d"),
             "end": pd.Timestamp(end).strftime("%Y%m%d"),
         },
@@ -120,18 +128,32 @@ def fetch_kline(secid: str, beg, end, *, now: pd.Timestamp | None = None) -> pd.
     rows = []
     for line in j["data"]["klines"]:
         d, o, c, h, low, v, a = line.split(",")
-        rows.append({"secid": secid, "trade_date": pd.Timestamp(d),
-                     "open": float(o), "close": float(c), "high": float(h),
-                     "low": float(low), "volume": float(v), "amount": float(a)})
+        rows.append(
+            {
+                "secid": secid,
+                "trade_date": pd.Timestamp(d),
+                "open": float(o),
+                "close": float(c),
+                "high": float(h),
+                "low": float(low),
+                "volume": float(v),
+                "amount": float(a),
+            }
+        )
     df = pd.DataFrame(rows)
     if df.empty:
         return df
     ts_now = now if now is not None else pd.Timestamp.now(tz="Asia/Shanghai")
-    ts_now = ts_now.tz_convert("Asia/Shanghai").tz_localize(None) if ts_now.tzinfo \
+    ts_now = (
+        ts_now.tz_convert("Asia/Shanghai").tz_localize(None)
+        if ts_now.tzinfo
         else ts_now
+    )
     last = df.iloc[-1]
-    if (last["trade_date"] == ts_now.normalize()
-            and ts_now.hour * 60 + ts_now.minute < 16 * 60 + 10):
+    if (
+        last["trade_date"] == ts_now.normalize()
+        and ts_now.hour * 60 + ts_now.minute < 16 * 60 + 10
+    ):
         df = df.iloc[:-1]
     return df.reset_index(drop=True)
 

@@ -3,6 +3,7 @@
 源验证 §2：单文件 ~26MB；SHORT SELLING 段被 <pre><font> 切块、含 &amp;、
 行首杂散 %；PREVIOUS DAY'S ADJUSTED 段为 T-1 修正（loader 必须覆盖 T-1 缓存）。
 """
+
 from __future__ import annotations
 
 import html
@@ -21,20 +22,23 @@ log = logging.getLogger(__name__)
 
 DAYQUOT_URL = "https://www.hkex.com.hk/eng/stat/smstat/dayquot/d{yymmdd}e.htm"
 ASHTMAIN_URL = "https://www.hkex.com.hk/eng/stat/smstat/ssturnover/ncms/ashtmain.htm"
-LOS_URL = ("https://www.hkex.com.hk/eng/services/trading/securities/"
-           "securitieslists/ListOfSecurities.xlsx")
+LOS_URL = (
+    "https://www.hkex.com.hk/eng/services/trading/securities/"
+    "securitieslists/ListOfSecurities.xlsx"
+)
 
 _HDR_DAILY = "SHORT SELLING TURNOVER - DAILY REPORT"
 _HDR_ADJUSTED = "PREVIOUS DAY'S ADJUSTED SHORT SELLING TURNOVER"
 
 _ROW_RE = re.compile(
     r"^\s*(\d{1,5})\s+(\S.*?)\s{2,}([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s*$",
-    re.M,
+    re.MULTILINE,
 )
 
-_LOS_ROW_RE = re.compile(r"<x:row [^>]*>(.*?)</x:row>", re.S)
+_LOS_ROW_RE = re.compile(r"<x:row [^>]*>(.*?)</x:row>", re.DOTALL)
 _LOS_CELL_RE = re.compile(
-    r'<x:c r="([A-Z]+)\d+"[^>]*?(?: t="(\w+)")?[^>]*>(.*?)</x:c>', re.S)
+    r'<x:c r="([A-Z]+)\d+"[^>]*?(?: t="(\w+)")?[^>]*>(.*?)</x:c>', re.DOTALL
+)
 
 
 def _clean_section(seg: str) -> str:
@@ -58,26 +62,29 @@ def _rows_from_section(sec: str) -> pd.DataFrame:
     rows = []
     for m in _ROW_RE.finditer(_clean_section(sec)):
         code, name, short_sh, short_amt, total_sh, total_amt = m.groups()
-        rows.append({
-            "code": code.zfill(5),
-            "name": name.strip(),
-            "short_shares": float(short_sh.replace(",", "")),
-            "short_amount": float(short_amt.replace(",", "")),
-            "total_shares_traded": float(total_sh.replace(",", "")),
-            "turnover": float(total_amt.replace(",", "")),
-        })
+        rows.append(
+            {
+                "code": code.zfill(5),
+                "name": name.strip(),
+                "short_shares": float(short_sh.replace(",", "")),
+                "short_amount": float(short_amt.replace(",", "")),
+                "total_shares_traded": float(total_sh.replace(",", "")),
+                "turnover": float(total_amt.replace(",", "")),
+            }
+        )
     return pd.DataFrame(rows)
 
 
-def parse_dayquot(html_text: str, *, data_date: str,
-                  prev_date: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def parse_dayquot(
+    html_text: str, *, data_date: str, prev_date: str | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """返回 (当日全口径逐证券, T-1 修正值)。prev_date 缺省用日历推。"""
     if prev_date is None:
         prev_date = prev_trading_day(data_date)
-    daily = _rows_from_section(
-        _section(html_text, _HDR_DAILY, [_HDR_ADJUSTED]))
+    daily = _rows_from_section(_section(html_text, _HDR_DAILY, [_HDR_ADJUSTED]))
     adjusted = _rows_from_section(
-        _section(html_text, _HDR_ADJUSTED, []))  # 段尾无固定边界，靠行正则特异性
+        _section(html_text, _HDR_ADJUSTED, [])
+    )  # 段尾无固定边界，靠行正则特异性
     if not daily.empty:
         daily["trade_date"] = pd.Timestamp(data_date)
     if not adjusted.empty:
@@ -89,7 +96,8 @@ def fetch_dayquot(date_str: str) -> pd.DataFrame | None:
     """归档文件（404=超出滚动窗口或非交易日 → None）。返回合并了 T-1 修正的表。"""
     ts = pd.Timestamp(date_str)
     html_text = http_client.try_get(
-        DAYQUOT_URL.format(yymmdd=ts.strftime("%y%m%d")), headers=HKEX_HEADERS)
+        DAYQUOT_URL.format(yymmdd=ts.strftime("%y%m%d")), headers=HKEX_HEADERS
+    )
     if html_text is None:
         return None
     daily, adjusted = parse_dayquot(html_text.text, data_date=date_str)
@@ -116,7 +124,7 @@ def parse_list_of_securities(xlsx_bytes: bytes) -> tuple[pd.DataFrame, str]:
         cells: dict[str, str] = {}
         for cm in _LOS_CELL_RE.finditer(rm.group(1)):
             col, _t, inner = cm.groups()
-            vm = re.search(r"<x:v>(.*?)</x:v>", inner, re.S)
+            vm = re.search(r"<x:v>(.*?)</x:v>", inner, re.DOTALL)
             if vm:
                 cells[col] = html.unescape(vm.group(1)).strip()
         raw_rows.append(cells)
@@ -127,9 +135,14 @@ def parse_list_of_securities(xlsx_bytes: bytes) -> tuple[pd.DataFrame, str]:
     for r in raw_rows:
         code = r.get("A", "")
         if code.isdigit() and len(code) <= 5:
-            rows.append({"code": code.zfill(5), "name": r.get("B", ""),
-                         "category": r.get("C", ""),
-                         "sub_category": r.get("D", "")})
+            rows.append(
+                {
+                    "code": code.zfill(5),
+                    "name": r.get("B", ""),
+                    "category": r.get("C", ""),
+                    "sub_category": r.get("D", ""),
+                }
+            )
     return pd.DataFrame(rows), eff
 
 
@@ -150,4 +163,6 @@ def etf_set(los_df: pd.DataFrame) -> set[str]:
 def reit_set(los_df: pd.DataFrame) -> set[str]:
     if los_df.empty:
         return set()
-    return set(los_df.loc[los_df["category"] == "Real Estate Investment Trusts", "code"])
+    return set(
+        los_df.loc[los_df["category"] == "Real Estate Investment Trusts", "code"]
+    )

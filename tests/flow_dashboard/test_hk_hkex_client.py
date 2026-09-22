@@ -1,9 +1,9 @@
 """hkex_client：dayquot 段解析（含切块/&amp;/杂散%）、LOS xlsx 解析。"""
+
 import io
 import zipfile
 
 import pandas as pd
-import pytest
 
 from flow_dashboard.data.hk_short import hkex_client
 
@@ -27,12 +27,12 @@ DAYQUOT_FIXTURE = """<html><body>
 
 def test_parse_dayquot_daily_and_adjusted():
     daily, prev = hkex_client.parse_dayquot(
-        DAYQUOT_FIXTURE, data_date="2026-09-18",
-        prev_date="2026-09-17")
+        DAYQUOT_FIXTURE, data_date="2026-09-18", prev_date="2026-09-17"
+    )
     assert len(daily) == 4
     assert len(prev) == 1  # 段尾无固定边界，靠行正则特异性截住
     r = daily[daily["code"] == "00002"].iloc[0]
-    assert r["name"] == "YOFC & CO"          # &amp; 已 unescape
+    assert r["name"] == "YOFC & CO"  # &amp; 已 unescape
     assert r["short_shares"] == 12500.0
     assert r["short_amount"] == 312500.0
     assert r["turnover"] == 4500000.0
@@ -45,32 +45,32 @@ def test_parse_dayquot_daily_and_adjusted():
 
 
 def test_parse_dayquot_missing_section_returns_empty():
-    daily, prev = hkex_client.parse_dayquot("<html>nothing</html>",
-                                            data_date="2026-09-18",
-                                            prev_date="2026-09-17")
+    daily, prev = hkex_client.parse_dayquot(
+        "<html>nothing</html>", data_date="2026-09-18", prev_date="2026-09-17"
+    )
     assert daily.empty and prev.empty
 
 
 def _build_los_xlsx() -> bytes:
     sheet = (
-        '<?xml version="1.0"?>'
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        "<sheetData>"
-        '<x:row r="1"><x:c r="A1"><x:v>List of Securities</x:v></x:c></x:row>'
-        '<x:row r="2"><x:c r="A2"><x:v>Updated as at 21/09/2026</x:v></x:c></x:row>'
-        '<x:row r="3"><x:c r="A3"><x:v>Stock Code</x:v></x:c>'
-        '<x:c r="B3"><x:v>Name</x:v></x:c><x:c r="C3"><x:v>Category</x:v></x:c>'
-        '<x:c r="D3"><x:v>Sub-Category</x:v></x:c></x:row>'
-        '<x:row r="4"><x:c r="A4" t="str"><x:v>700</x:v></x:c>'
-        '<x:c r="B4" t="str"><x:v>TENCENT</x:v></x:c>'
-        '<x:c r="C4" t="str"><x:v>Equity</x:v></x:c>'
-        '<x:c r="D4" t="str"><x:v>Securities</x:v></x:c></x:row>'
-        '<x:row r="5"><x:c r="A5" t="str"><x:v>2800</x:v></x:c>'
-        '<x:c r="B5" t="str"><x:v>TRACKER FUND</x:v></x:c>'
-        '<x:c r="C5" t="str"><x:v>Exchange Traded Products</x:v></x:c>'
-        '<x:c r="D5" t="str"><x:v>ETF</x:v></x:c></x:row>'
-        "</sheetData></worksheet>"
-    ).encode()
+        b'<?xml version="1.0"?>'
+        b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        b"<sheetData>"
+        b'<x:row r="1"><x:c r="A1"><x:v>List of Securities</x:v></x:c></x:row>'
+        b'<x:row r="2"><x:c r="A2"><x:v>Updated as at 21/09/2026</x:v></x:c></x:row>'
+        b'<x:row r="3"><x:c r="A3"><x:v>Stock Code</x:v></x:c>'
+        b'<x:c r="B3"><x:v>Name</x:v></x:c><x:c r="C3"><x:v>Category</x:v></x:c>'
+        b'<x:c r="D3"><x:v>Sub-Category</x:v></x:c></x:row>'
+        b'<x:row r="4"><x:c r="A4" t="str"><x:v>700</x:v></x:c>'
+        b'<x:c r="B4" t="str"><x:v>TENCENT</x:v></x:c>'
+        b'<x:c r="C4" t="str"><x:v>Equity</x:v></x:c>'
+        b'<x:c r="D4" t="str"><x:v>Securities</x:v></x:c></x:row>'
+        b'<x:row r="5"><x:c r="A5" t="str"><x:v>2800</x:v></x:c>'
+        b'<x:c r="B5" t="str"><x:v>TRACKER FUND</x:v></x:c>'
+        b'<x:c r="C5" t="str"><x:v>Exchange Traded Products</x:v></x:c>'
+        b'<x:c r="D5" t="str"><x:v>ETF</x:v></x:c></x:row>'
+        b"</sheetData></worksheet>"
+    )
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("xl/worksheets/sheet1.xml", sheet)
@@ -98,7 +98,10 @@ def test_fetch_dayquot_three_state_contract(monkeypatch):
     monkeypatch.setattr(hkex_client.http_client, "try_get", lambda url, **k: None)
     assert hkex_client.fetch_dayquot("2026-09-18") is None
     # 200 但两段皆无数据行 → 空 DataFrame（不是 None——loader 语义区分）
-    monkeypatch.setattr(hkex_client.http_client, "try_get",
-                        lambda url, **k: _Resp(text="<html>nothing</html>"))
+    monkeypatch.setattr(
+        hkex_client.http_client,
+        "try_get",
+        lambda url, **k: _Resp(text="<html>nothing</html>"),
+    )
     out = hkex_client.fetch_dayquot("2026-09-18")
     assert out is not None and out.empty
