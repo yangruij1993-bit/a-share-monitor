@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.ygr.hk-short.eod</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>cd '/Users/xinghuazhang/ygr-project/a股监控' &amp;&amp; set -a &amp;&amp; source .env &amp;&amp; set +a &amp;&amp; exec .venv/bin/python3 scripts/flow_dashboard/run_hk_short_eod.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/xinghuazhang/ygr-project/a股监控</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>18</integer>
+        <key>Minute</key><integer>45</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/xinghuazhang/ygr-project/a股监控/logs/flow_dashboard/hk_short_eod.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/xinghuazhang/ygr-project/a股监控/logs/flow_dashboard/hk_short_eod.err.log</string>
+</dict>
+</plist>

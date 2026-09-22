@@ -1,6 +1,7 @@
 """pipeline 集成港股 tab：tabs 结构、双日期 manifest、report_date 归档名。"""
 
 import json
+from pathlib import Path
 
 import pandas as pd
 
@@ -93,3 +94,141 @@ def test_hk_tab_helper_delegates_to_panels(tmp_path, monkeypatch):
         pd.Timestamp("2026-09-18 19:00", tz="Asia/Shanghai")
     )
     assert html == "<b>HK</b>" and d == "2026-09-18"
+
+
+def test_hk_eod_short_circuits_on_non_trading_day(tmp_path, monkeypatch):
+    """周六休市且 SFC 无逾期 → 不抓数据不渲染，直接返回 latest.html。"""
+    from flow_dashboard import hk_short_pipeline as hp
+
+    monkeypatch.setattr(hp, "_sfc_missing", lambda *, as_of, cache_dir=None: False)
+
+    def boom(*a, **k):
+        raise AssertionError("non-trading day must not fetch/render")
+
+    monkeypatch.setattr(hp, "_fetch_hk_increments", boom)
+    monkeypatch.setattr("flow_dashboard.pipeline._run_eod_preview_inner", boom)
+    out = hp.run_hk_short_eod(
+        as_of=pd.Timestamp("2026-09-19 18:45", tz="Asia/Shanghai"),  # 周六
+        output_dir=tmp_path,
+        lock_path=tmp_path / "runners.lock",
+    )
+    assert out.name == "latest.html"
+
+
+def test_hk_eod_fetches_and_publishes_on_trading_day(tmp_path, monkeypatch):
+    from flow_dashboard import hk_short_pipeline as hp
+
+    _mock_ashare_empty(monkeypatch)
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._render_hk_tab_for_pipeline",
+        lambda as_of: ("<div>hk</div>", "2026-09-18"),
+    )
+    fetched = {}
+
+    def fake_fetch(as_of):
+        fetched["called"] = str(pd.Timestamp(as_of).date())
+
+    monkeypatch.setattr(hp, "_fetch_hk_increments", fake_fetch)
+    out = hp.run_hk_short_eod(
+        as_of=pd.Timestamp("2026-09-18 18:45", tz="Asia/Shanghai"),  # 周五
+        output_dir=tmp_path,
+        lock_path=tmp_path / "runners.lock",
+    )
+    assert fetched["called"] == "2026-09-18"
+    # report_date = 2026-09-18（触发当日即交易日）
+    assert "report_2026-09-18_v01.html" in out.name
+
+
+def test_hk_eod_skipped_due_to_lock(tmp_path, monkeypatch):
+    import fcntl
+
+    from flow_dashboard import hk_short_pipeline as hp
+
+    lock_path = tmp_path / "runners.lock"
+    lock_path.touch()
+    held = open(lock_path, "w")  # noqa: SIM115 — fd 需跨 run_hk_short_eod 调用保持打开以模拟持锁
+    fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # 模拟 A股 runner 持锁
+    monkeypatch.setattr(
+        hp,
+        "_fetch_hk_increments",
+        lambda as_of: (_ for _ in ()).throw(AssertionError()),
+    )
+    out = hp.run_hk_short_eod(
+        as_of=pd.Timestamp("2026-09-18 18:45", tz="Asia/Shanghai"),
+        output_dir=tmp_path,
+        lock_path=lock_path,
+    )
+    assert out.name == "latest.html"  # 保留现有页面
+    fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+    held.close()
+
+
+def test_sfc_missing_grace_window(tmp_path, monkeypatch):
+    from flow_dashboard import hk_short_pipeline as hp
+    from flow_dashboard.data.hk_short import loaders
+
+    # 缓存最新一期 = 09-11；最新已完成周 = 09-18，其宽限期至 09-25 EOD
+    loaders._write(
+        pd.DataFrame(
+            {
+                "position_date": [pd.Timestamp("2026-09-11")],
+                "checked_at": [pd.Timestamp("2026-09-18")],
+            }
+        ),
+        tmp_path / loaders.SFC_NONE_FILE,
+    )
+    loaders._write(
+        pd.DataFrame(
+            {
+                "code": ["00700"],
+                "position_date": [pd.Timestamp("2026-09-11")],
+                "published_at": [pd.Timestamp("2026-09-11 15:41", tz="Asia/Shanghai")],
+                "available_at": [pd.Timestamp("2026-09-11 15:41", tz="Asia/Shanghai")],
+                "fetched_at": [pd.Timestamp("2026-09-11 19:00", tz="Asia/Shanghai")],
+            }
+        ),
+        tmp_path / loaders.SFC_FILE,
+    )
+    # 09-21 周一：09-18 报告的宽限期未到（至 09-25）→ 不算 missing
+    assert not hp._sfc_missing(
+        as_of=pd.Timestamp("2026-09-21 18:45", tz="Asia/Shanghai"), cache_dir=tmp_path
+    )
+    # 09-28 周一：宽限期已过仍缺 09-18 → missing（休市日也要跑，补抓 SFC）
+    assert hp._sfc_missing(
+        as_of=pd.Timestamp("2026-09-28 18:45", tz="Asia/Shanghai"), cache_dir=tmp_path
+    )
+
+
+def test_launchd_plist_and_runner_script_present():
+    root = Path(__file__).resolve().parents[2]
+    plist = root / "scripts/launchd/com.ygr.hk-short.eod.plist"
+    runner = root / "scripts/flow_dashboard/run_hk_short_eod.py"
+    assert plist.exists() and runner.exists()
+    text = plist.read_text()
+    assert "com.ygr.hk-short.eod" in text
+    assert "<integer>18</integer>" in text and "<integer>45</integer>" in text
+    assert "run_hk_short_eod.py" in text
+    assert "<key>Weekday</key>" not in text  # 无 Weekday：休市日靠 runner 日历短路
+    assert "run_hk_short_eod" in runner.read_text()
+
+
+def test_hk_tab_render_failure_does_not_block_ashare_publish(tmp_path, monkeypatch):
+    """港股 tab 渲染抛异常不得阻塞 A股 发布（设计 §3 隔离）。"""
+    _mock_ashare_empty(monkeypatch)
+
+    def boom(as_of):
+        raise RuntimeError("corrupted parquet")
+
+    monkeypatch.setattr("flow_dashboard.pipeline._render_hk_tab_for_pipeline", boom)
+    output_dir = tmp_path / "z"
+    path = run_eod_preview(
+        data_date="2026-08-12",
+        as_of=pd.Timestamp("2026-08-12 19:30", tz="Asia/Shanghai"),
+        output_dir=output_dir,
+        lock_path=output_dir / "runners.lock",
+    )
+    html = path.read_text()
+    assert 'data-tab="ashare"' in html  # A股 tab 照常
+    assert "数据待更新" in html  # 港股 tab 显示横幅
+    manifest = json.loads((output_dir / "manifest" / "2026-08-12_v01.json").read_text())
+    assert manifest["panel_status"]["hk_data_date"] is None
