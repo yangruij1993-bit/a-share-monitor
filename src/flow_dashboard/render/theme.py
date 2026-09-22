@@ -199,8 +199,8 @@ function _showTab(id){
 }
 function _tabFromHash(){
   var m = location.hash.match(/^#tab-(.+)$/);
-  var first = document.querySelector('.tab-bar a');
-  _showTab(m ? m[1] : (first ? first.dataset.tab : ''));
+  if (!m) return;
+  _showTab(m[1]);
 }
 window.addEventListener('hashchange', _tabFromHash);
 _tabFromHash();
