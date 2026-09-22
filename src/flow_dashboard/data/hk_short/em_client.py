@@ -17,9 +17,10 @@ log = logging.getLogger(__name__)
 
 BASE = "https://hk.eastmoney.com"
 
-# 源验证 §1 实测行结构：序号|代码锚点|名称td(被 .*? 跳过再单独抓)|最新价|沽空数量|沽空均价|沽空金额|总成交金额|SSR%|日期
+# 源验证 §1 实测行结构：序号|代码锚点|名称td(被行内通配跳过再单独抓)|最新价|沽空数量|沽空均价|沽空金额|总成交金额|SSR%|日期
+# 行内通配用 (?:(?!</tr>).)*? 收紧：格式漂移时不允许回溯跨过 </tr> 拼接相邻行（质量评审加固）
 SELLSHORT_ROW_RE = re.compile(
-    r'<tr>\s*<td><span>\d+</span></td>\s*<td>\s*<a[^>]*>(\d{5})</a>\s*</td>.*?'
+    r'<tr>\s*<td><span>\d+</span></td>\s*<td>\s*<a[^>]*>(\d{5})</a>\s*</td>(?:(?!</tr>).)*?'
     r'<td><span>([\d.]+)</span></td>\s*'          # 最新价（丢弃）
     r'<td><span>([\d,.]+)\s*</span></td>\s*'       # 沽空数量
     r'<td><span>([\d.]+)</span></td>\s*'           # 沽空平均价
@@ -82,6 +83,8 @@ def fetch_sellshort_day(date_str: str) -> pd.DataFrame:
     """单日全市场（股票口径）卖空。非交易日返回空 DataFrame，不抛错。"""
     ds = pd.Timestamp(date_str).strftime("%Y-%m-%d")
     out = _collect_pages({"code": "", "sdate": ds, "edate": ds})
+    if not out.empty:
+        out = out[out["source_date"] == ds].reset_index(drop=True)
     if not out.empty:
         out["trade_date"] = pd.Timestamp(date_str)
     return out

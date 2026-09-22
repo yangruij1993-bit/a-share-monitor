@@ -123,3 +123,22 @@ def test_fetch_kline_drops_incomplete_today(monkeypatch):
         "100.HSI", "2026-09-01", "2026-09-18",
         now=pd.Timestamp("2026-09-18 16:30:00", tz="Asia/Shanghai"))
     assert df2["trade_date"].max() == pd.Timestamp("2026-09-18")
+
+
+def test_fetch_total_shares_pins_secid_and_validation(monkeypatch):
+    captured = {}
+
+    def fake_fetch_json(url, *, params=None, headers=None, **k):
+        captured["url"] = url
+        captured["params"] = params
+        captured["validate"] = k.get("validate")
+        return {"data": {"f84": 9095085993}}
+
+    monkeypatch.setattr(em_client.http_client, "fetch_json", fake_fetch_json)
+    out = em_client.fetch_total_shares("00700")
+    assert out == 9095085993 and isinstance(out, int)
+    assert captured["params"]["secid"] == "116.00700"   # 5 位 zfill + 116. 前缀
+    assert captured["params"]["fields"] == "f84"
+    # validate 必须拒绝东财限流形态 data:null，接受正常载荷
+    assert not captured["validate"]({"rc": 0, "data": None})
+    assert captured["validate"]({"rc": 0, "data": {"f84": 1}})
