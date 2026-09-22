@@ -1405,7 +1405,11 @@ def fetch_sfc_week(position_date, *, fetched_at: pd.Timestamp) -> pd.DataFrame |
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m pytest tests/flow_dashboard/test_hk_sfc_client.py -v`
-Expected: 3 passed
+Expected: 4 passed
+
+**勘误（质量评审加固，实施时保留）**：
+1. 参考实现中 `df["published_at"] = published_at` 在 Last-Modified 头缺失时（published_at=None）会产生 object 列——与正常周的 tz-aware 列 concat 后 dtype 漂移，威胁 Task 7 parquet 缓存 schema。改为 `pd.Series([published_at if published_at is not None else pd.NaT] * len(df), dtype="datetime64[ns, Asia/Shanghai]")`，published_at 列恒为 tz-aware（缺失=NaT）。
+2. 补 `test_fetch_sfc_week_missing_last_modified_falls_back`：钉死 header 缺失时 published_at=NaT（tz-aware dtype）、available_at 退化 fetched_at——使 "Expected: 4 passed" 计数成立（原文 3 个测试）。
 
 - [ ] **Step 5: Commit**
 
