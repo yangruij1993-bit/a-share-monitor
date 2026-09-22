@@ -232,3 +232,64 @@ def test_hk_tab_render_failure_does_not_block_ashare_publish(tmp_path, monkeypat
     assert "数据待更新" in html  # 港股 tab 显示横幅
     manifest = json.loads((output_dir / "manifest" / "2026-08-12_v01.json").read_text())
     assert manifest["panel_status"]["hk_data_date"] is None
+
+
+def test_backfill_cli_wires_windows(tmp_path, monkeypatch):
+    """backfill CLI 把窗口参数传给各 loader（SFC 用周数、K线用 secids）。"""
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "backfill_hk_short", root / "scripts/flow_dashboard/backfill_hk_short.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    calls = {}
+
+    def fake_loader(name):
+        def f(**kw):
+            calls[name] = kw
+
+        return f
+
+    monkeypatch.setattr(
+        mod,
+        "_loaders",
+        lambda: {
+            "em_day": fake_loader("em_day"),
+            "em_watch": fake_loader("em_watch"),
+            "hkex": fake_loader("hkex"),
+            "sfc": fake_loader("sfc"),
+            "kline": fake_loader("kline"),
+            "shares": fake_loader("shares"),
+            "los": fake_loader("los"),
+        },
+    )
+    mod.main(
+        [
+            "--as-of",
+            "2026-09-18 19:00",
+            "--em-days",
+            "10",
+            "--hkex-days",
+            "5",
+            "--sfc-weeks",
+            "4",
+            "--kline-days",
+            "30",
+            tmp_path.as_posix(),
+        ]
+    )
+    assert calls["em_day"]["start"] == pd.Timestamp("2026-09-08")
+    assert calls["hkex"]["start"] == pd.Timestamp("2026-09-13")
+    assert calls["sfc"]["weeks"] == 4
+    assert calls["kline"]["start"] == pd.Timestamp("2026-08-19")
+    assert "116.00700" in calls["kline"]["secids"]
+    assert "100.HSI" in calls["kline"]["secids"]
+    assert [
+        c
+        for _, c in __import__(
+            "flow_dashboard.config", fromlist=["HK_WATCH_LIST"]
+        ).HK_WATCH_LIST
+    ] == calls["shares"]["codes"]
