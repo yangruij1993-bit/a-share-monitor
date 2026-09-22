@@ -89,13 +89,22 @@
 
 ### URL 模式（实测）
 
+> **2026-09-22 更新（网站改版）**：下述"路径日期=公布日"的旧地址整体失效（302→HTML /404）。
+> 改版后 CSV 路径按**报告期本身**组织（`spr/{position_date}/..._{position_date}.csv`），
+> 每期一个确定性 URL，无需按公布日候选探测；`Last-Modified` 仍为公布时刻证据
+> （实测 09-11 期 = 09-18 15:43 HKT）。未公布/缺失文件 302 跟随到 200 text/html
+> 的 404 页，抓取前必须先验 Content-Type/首行再解析（`sfc_client._looks_like_sfc_csv`）。
+> 新地址发现方式：官网汇总页
+> `https://www.sfc.hk/en/Regulatory-functions/Market/Short-position-reporting/Aggregated-reportable-short-positions-of-specified-shares`
+> 的 CSV 链接（带 `?rev=` 缓存参数，直接 GET 不带 rev 亦可）。
+
 ```
-https://www.sfc.hk/-/media/EN/pdf/spr/{发布年}/{发布月}/{发布日}/Short_Position_Reporting_Aggregated_Data_{报告期YYYYMMDD}.csv
+https://www.sfc.hk/-/media/EN/pdf/spr/{报告期年}/{报告期月}/{报告期日}/Short_Position_Reporting_Aggregated_Data_{报告期YYYYMMDD}.csv
 ```
 
-- 路径日期 = 实际公布日（position_date + 7 天的周五）；文件名日期 = position_date（周最后一个交易日）
+- 路径日期 = 文件名日期 = position_date（周最后一个交易日）；公布时点 = position_date + 7 天的周五（由 Last-Modified 证据确认，勿倒推 available_at）
 - 无鉴权，直接 GET；`Last-Modified` 响应头 = 公布时间证据（实测为公布周五 15:00–16:40 HKT）
-- 例：`.../spr/2026/09/18/Short_Position_Reporting_Aggregated_Data_20260911.csv`
+- 例：`.../spr/2026/09/11/Short_Position_Reporting_Aggregated_Data_20260911.csv`
 - 历史：至 2012 年（抽查 2024-01-05 ✓）；公众假日周（如 Boxing Day 2025-12-26）无报告/302
 
 ### CSV 格式
@@ -148,7 +157,7 @@ Date,Stock Code,Stock Name,Aggregated Reportable Short Positions (Shares),Aggreg
 
 | 数据 | available_at |
 |---|---|
-| 东财日频（卖空/K线/总股本） | 数据日期 16:10 HKT（HK 收市）。实际发布更晚（东财盘后 ~17:00-18:00），18:45 runner 抓取即安全 |
+| 东财日频（卖空/K线/总股本） | 数据日期 16:10 HKT（HK 收市）。实际发布更晚：**卖空页 2026-09-22 实测 16:37 仍空、16:42 已发布**（~17:00-18:00 常态），18:45 runner 抓取即安全；数据未发布时页面 0 行，客户端须返回空表而非报错 |
 | HKEX dayquot 归档 | 数据日期 17:30 HKT（ashtmain 当日版发布时点）；18:45 runner 安全 |
 | SFC 周报 | `published_at` = 首次抓取时记录的响应 `Last-Modified`（position_date + 7 天的周五 15:00–16:40 HKT）。无法取得 header 时退化为 `first_observed_at` |
 
