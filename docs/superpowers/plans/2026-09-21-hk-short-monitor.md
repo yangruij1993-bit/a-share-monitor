@@ -4308,6 +4308,20 @@ git commit -m "test(hk-short): live smoke tests for all frozen sources"
 
 ---
 
+## 最终整体审查记录（20f918e..d9fb438 全量 diff 审查 + 复核，不得回退）
+
+**结论：Critical 0 / Important 1（已修复复核通过）/ Minor 2（记录为已知事项，不改码）——分支批准收尾。**
+
+**Important #1（已修复，2efabc3 + 复核通过）**：分支触碰文件存在真实 ruff check / ruff format 违规——此前多个任务级质量审查误报"ruff 绿"，最终整体审查实测揭穿。修复：机械清理子代理仅对分支触碰的 17 个文件执行 `ruff check --fix` + `ruff format`（16 处 auto-fix + 17 处重排，0 手工改动、0 noqa、0 配置放宽），提交 2efabc3。复核（独立审查代理）确认：26 个触碰文件 check/format 全绿；diff 逐文件抽样为纯格式重排（引号规范化、签名重排、切片空格、fixture 缩进），无逻辑/断言变化；提交范围恰好等于触碰文件集，未改 pyproject/ruff 配置；回归 227 passed / 17 skipped / 1 deselected 与修复前逐项一致。
+- 教训记录：任务级审查中"ruff 绿"结论必须由审查者**实际运行命令**得出，不得采信实现者转述；本计划后续任何改动沿用"触碰文件必须 check+format 双绿"标准。
+- 遗留（留给人类决策）：仓库无 `[tool.ruff]` 配置、ruff 0.16.2 未钉版，未触碰文件存在 ~103 处既有违规（基线红）；建议仓库级落 ruff 配置并钉版本，属仓库治理范畴，不在本分支强行统一。
+
+**Minor #2（已知事项，不改码）**：manifest `panels` 声明的逻辑 id `panel-hk-watch` 与实际渲染 id `panel-hk-watch-{code5}`（如 `panel-hk-watch-00700`，panels_hk_short.py）前缀不一致——下游若按 manifest 逐 id 映射 DOM 会落空。该 id 是 Task 13 冻结的逻辑分组 id（manifest 语义为"面板清单"而非"DOM 锚点清单"），保留不改；后续若做面板级健康检查，须按前缀匹配或改为逐证券展开。
+
+**Minor #3（已知事项，不改码）**：A股权衡休市而港股开市的日子（如国庆 10-01），港股 runner 触发的报告中 `manifest.panel_status.ashare_data_date` 记录的是触发日口径的 report_date 相关值而非该日真实 A股 数据日。`is_partial` 标志与双日期设计已缓解歧义，且与 Task 13/14 冻结代码一致，属设计层观察——如需精确，后续可在 manifest 增加 `ashare_real_data_date` 字段。
+
+---
+
 ## 收尾
 
 1. 全量回归：`python -m pytest tests/flow_dashboard/ -v`（排除 live）全绿。
