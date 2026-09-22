@@ -39,7 +39,7 @@ HTML_PAGER2 = (
     '<html><table><tbody>'
     + ROW_TMPL.format(i=1, code="00700", name="腾讯控股",
                       shares="2,033,300", amt="6.37亿", tov="36.94亿", ssr="17.25")
-    + ROW_TMPL.format(i=2, code="09888", name="阿里巴巴-W",
+    + ROW_TMPL.format(i=2, code="09988", name="阿里巴巴-W",
                       shares="1,000,000", amt="1.00亿", tov="10.00亿", ssr="10.00")
     + "</tbody></table>"
     '<div class="pagerbox"><a href="sellshort_2.html">2</a></div></html>'
