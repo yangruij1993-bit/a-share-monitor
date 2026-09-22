@@ -85,3 +85,20 @@ def test_parse_list_of_securities():
     assert r["category"] == "Exchange Traded Products"
     assert set(hkex_client.etf_set(df)) == {"02800"}
     assert hkex_client.reit_set(df) == set()
+
+
+class _Resp:
+    def __init__(self, text="", status=200):
+        self.status_code = status
+        self.text = text
+
+
+def test_fetch_dayquot_three_state_contract(monkeypatch):
+    # 404 → None（非交易日/超出 ~61 天滚动窗口的探测语义）
+    monkeypatch.setattr(hkex_client.http_client, "try_get", lambda url, **k: None)
+    assert hkex_client.fetch_dayquot("2026-09-18") is None
+    # 200 但两段皆无数据行 → 空 DataFrame（不是 None——loader 语义区分）
+    monkeypatch.setattr(hkex_client.http_client, "try_get",
+                        lambda url, **k: _Resp(text="<html>nothing</html>"))
+    out = hkex_client.fetch_dayquot("2026-09-18")
+    assert out is not None and out.empty
