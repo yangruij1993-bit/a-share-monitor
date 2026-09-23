@@ -12,6 +12,7 @@ venv/
 
 # Project data (Phase A evidence committed explicitly under data/flow_dashboard/phase_a_evidence/)
 data/flow_dashboard/cache/
+data/flow_dashboard/hk_short/
 output/
 logs/
 output/ashare_flow_daily/*.html
