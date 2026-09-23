@@ -138,6 +138,12 @@ def _build_context(*, as_of, cdir: Path) -> dict:
         else None
     )
     price = _price_direction(kline)
+    etf_codes = etf_set(los)
+    sfc_series = (
+        mx.sfc_market_series(sfc, shares, exclude_codes=etf_codes)
+        if not sfc.empty and not shares.empty
+        else pd.DataFrame()
+    )
     sfc_mkt = (
         mx.sfc_market_metrics(
             sfc,
@@ -148,7 +154,6 @@ def _build_context(*, as_of, cdir: Path) -> dict:
         if not sfc.empty and not shares.empty
         else {"available": False}
     )
-    etf_codes = etf_set(los)
     if not mkt.empty:
         hk_date = mkt["trade_date"].max()
     elif not kline.empty:
@@ -192,6 +197,7 @@ def _build_context(*, as_of, cdir: Path) -> dict:
         "los": los,
         "shares": shares,
         "mkt": mkt,
+        "sfc_series": sfc_series,
         "weekly_i": weekly_i,
         "ssr_pct": ssr_pct,
         "m20": m20,
@@ -229,6 +235,8 @@ def render_hk_short_body(*, as_of, cache_dir=None) -> tuple[str, str | None]:
         ),
         _render_conclusion(ctx),
         _render_market_chart(ctx),
+        _render_market_table(ctx),
+        _render_sfc_table(ctx),
         _render_watch(ctx),
         _render_top20(ctx),
     ]
@@ -242,7 +250,7 @@ def _render_conclusion(ctx: dict) -> str:
     latest_ssr = mkt["ssr"].iloc[-1] if not mkt.empty else None
     sfc_m = ctx["sfc_mkt"]
     if sfc_m.get("available"):
-        sfc_val = f"{sfc_m['delta_bps']:+.0f}bp"
+        sfc_val = f"{sfc_m['delta_bps']:+.1f}bp"
         sfc_delta = (
             f"可比 {sfc_m['n_comparable']} 只 · 覆盖 {sfc_m['coverage']:.0%}"
             f" · 报告期 {pd.Timestamp(sfc_m['latest_pd']).strftime('%m-%d')}"
@@ -312,6 +320,10 @@ def _render_market_chart(ctx: dict) -> str:
             if not ctx["kline"].empty
             else pd.DataFrame()
         )
+        if not s.empty and not mkt.empty:
+            # 指数源（可回溯多年）早于沽空源（东财仅保留近一年）的部分裁掉，
+            # 否则图左端出现一段只有指数、没有沽空柱的空档
+            s = s[s["trade_date"] >= mkt["trade_date"].min()]
         if s.empty:
             continue
         fig.add_scatter(
@@ -355,6 +367,85 @@ def _render_market_chart(ctx: dict) -> str:
         '<div class="panel" id="panel-hk-market">'
         + render_figure_to_html(fig, div_id="hk-market-overview")
         + "</div>"
+    )
+
+
+def _render_market_table(ctx: dict) -> str:
+    """全市场加总·最近 20 个交易日明细（股票口径）。"""
+    mkt, sfc = ctx["mkt"], ctx["sfc"]
+    if mkt.empty:
+        return ""
+    win = T["daily_intensity_window"]
+    df = mkt.tail(20).copy()
+    df["ma"] = mkt["short_amount"].rolling(win, min_periods=1).mean().tail(20)
+    sfc_tot = (
+        sfc.groupby("position_date")["short_amount_hkd"].sum()
+        if not sfc.empty
+        else pd.Series(dtype="float64")
+    )
+    head = "".join(
+        f"<th style='{_TH}'>{_esc(c)}</th>"
+        for c in (
+            "交易日期",
+            "总沽空额",
+            "总成交额",
+            "加权SSR%",
+            "证券数",
+            f"沽空额/{win}日均",
+            "SFC未平仓总额",
+        )
+    )
+    rows = []
+    for r in df.itertuples():
+        oi = sfc_tot.get(pd.Timestamp(r.trade_date))
+        ratio = r.short_amount / r.ma if r.ma else None
+        vals = [
+            pd.Timestamp(r.trade_date).strftime("%Y-%m-%d"),
+            _fmt_amount(r.short_amount),
+            _fmt_amount(r.turnover),
+            f"{r.ssr * 100:.2f}",
+            f"{int(r.n_secs)}",
+            _fmt_x(ratio),
+            _fmt_amount(oi) if oi is not None and not pd.isna(oi) else "",
+        ]
+        rows.append("<tr>" + "".join(f"<td style='{_TD}'>{v}</td>" for v in vals) + "</tr>")
+    return (
+        '<div class="panel" id="panel-hk-market-table">'
+        '<div class="panel-title">全市场加总 · 最近 20 个交易日</div>'
+        '<div class="panel-subtitle">股票口径，不含 ETF/ETP；SFC 列为当期须申报'
+        "淡仓总额（周报日有值，含 ETF）；东财沽空源仅保留近一年历史</div>"
+        '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:12px">'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div></div>"
+    )
+
+
+def _render_sfc_table(ctx: dict) -> str:
+    """SFC 须申报淡仓整体加总（周度）：Σ未平仓额 / Σ市值 / 比率 / 环比 bp。"""
+    s = ctx["sfc_series"]
+    if s is None or s.empty:
+        return ""
+    head = "".join(
+        f"<th style='{_TH}'>{_esc(c)}</th>"
+        for c in ("报告期", "Σ未平仓额", "Σ市值", "未平仓/市值%", "环比bp", "覆盖证券数")
+    )
+    rows = []
+    for r in s.tail(12).itertuples():
+        vals = [
+            pd.Timestamp(r.position_date).strftime("%Y-%m-%d"),
+            _fmt_amount(r.short_total),
+            _fmt_amount(r.mcap_total),
+            _fmt_pct(r.ratio),
+            f"{r.delta_bp:+.1f}bp" if pd.notna(r.delta_bp) else "—",
+            f"{int(r.n_covered)}/{int(r.n_total)}",
+        ]
+        rows.append("<tr>" + "".join(f"<td style='{_TD}'>{v}</td>" for v in vals) + "</tr>")
+    return (
+        '<div class="panel" id="panel-hk-sfc-table">'
+        '<div class="panel-title">SFC 须申报淡仓 · 整体加总（周度）</div>'
+        '<div class="panel-subtitle">市值=隐含价(金额/股数)×总股本(快照)；'
+        "人民币柜台(-R)与港元柜台同期并存只计一次；仅计入有股本覆盖的证券</div>"
+        '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:12px">'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div></div>"
     )
 
 

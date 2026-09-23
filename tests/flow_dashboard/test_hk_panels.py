@@ -226,3 +226,45 @@ def test_top20_renders_with_insufficient_sample(tmp_path):
     assert "TOP20" in html
     assert "样本不足" in html  # 历史仅 4 日 < 20 → 不伪造分位
     assert "腾讯控股" in html
+
+
+def test_market_table_renders_daily_aggregate(tmp_path):
+    """市场加总表：每日 Σ沽空/Σ成交/加权SSR/证券数，SFC 总额仅周报日有值。"""
+    _build_cache(tmp_path)
+    html, _ = render_hk_short_body(as_of=AS_OF, cache_dir=tmp_path)
+    assert "全市场加总" in html
+    assert "总沽空额" in html and "总成交额" in html and "证券数" in html
+    # 每日 Σ沽空 4e8 → 4.00亿；Σ成交 4e9 → 40.00亿；SSR 10.00；证券数 2
+    assert "40.00亿" in html
+    assert ">2<" in html
+    # SFC 未平仓总额：09-11 期 = 1e8 + 3e8 = 4.00亿（表头在场即可定位稀疏列）
+    assert "SFC未平仓总额" in html
+
+
+def test_market_chart_trims_index_lines_to_short_series_start(tmp_path):
+    """指数线起点必须对齐沽空序列起点（kline 09-10 早于 EM 09-11 → 裁掉 09-10），
+    消除图左端"只有指数没有沽空"的空档。"""
+    _build_cache(tmp_path)
+    html, _ = render_hk_short_body(as_of=AS_OF, cache_dir=tmp_path)
+    seg = html[html.find('id="panel-hk-market"') : html.find("section-hk-watch")]
+    # plotly 内嵌 JSON 对非 ASCII 转义，"恒指"须按 U+6052 U+6307 匹配
+    assert "\\u6052\\u6307" in seg  # 指数线仍在
+    assert "2026-09-10" not in seg  # 早于沽空起点的指数日被裁掉
+    assert "2026-09-11" in seg  # 沽空首日照常在场
+
+
+def test_sfc_weekly_aggregate_table_renders(tmp_path):
+    """SFC 整体加总周度表：Σ未平仓额/Σ市值/比率/环比bp（00700 有股本、00001 无）。"""
+    _build_cache(tmp_path)
+    html, _ = render_hk_short_body(as_of=AS_OF, cache_dir=tmp_path)
+    seg = html[html.find('id="panel-hk-sfc-table"') :]
+    assert "SFC 须申报淡仓 · 整体加总" in seg
+    assert "Σ未平仓额" in seg and "Σ市值" in seg and "未平仓/市值%" in seg
+    # 09-11 期：Σ未平仓 3e8 → 3.00亿；Σ市值 = 16.4898×9.095e9 = 1.5e11 → 1500.00亿
+    assert "3.00亿" in seg
+    assert "1500.00亿" in seg
+    # 比率 0.002 → 0.20%；环比 (0.002-0.001)×1e4 = +10.0bp（1 位小数：
+    # 真实周环比普遍不足 1bp，0 位小数会显示成 "-0bp"）；覆盖 1/2
+    assert "0.20%" in seg
+    assert "+10.0bp" in seg
+    assert ">1/2<" in seg

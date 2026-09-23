@@ -146,6 +146,75 @@ def sfc_stock_metrics(
     }
 
 
+def is_rmb_counter(code, name) -> bool:
+    """SFC 代码 8xxxx 且名称以 -R/-WR 结尾 → 人民币柜台（区别于 GEM 8xxxx）。"""
+    c = str(code)
+    return (
+        len(c) == 5 and c.startswith("8") and str(name).endswith(("-R", "-WR"))
+    )
+
+
+def sfc_market_series(
+    sfc_df: pd.DataFrame,
+    shares_df: pd.DataFrame,
+    *,
+    weeks: int = 12,
+    exclude_codes: set | None = None,
+) -> pd.DataFrame:
+    """SFC 整体加总周度序列：每期 Σ未平仓额、Σ市值（隐含价×总股本）、比率与环比 bp。
+
+    RMB 柜台（8xxxx·-R/W R）与港元柜台同期并存时剔除 RMB 行避免市值重复计入；
+    无港元对照的 RMB 行经 '0'+后4位 别名借股本。仅计入有股本覆盖的证券，
+    覆盖为 0 的周不出行；全无覆盖 → 空帧。
+    """
+    if sfc_df is None or sfc_df.empty or shares_df is None or shares_df.empty:
+        return pd.DataFrame()
+    sh = (
+        shares_df[["code", "total_shares"]]
+        .drop_duplicates("code")
+        .set_index("code")["total_shares"]
+    )
+    out_rows = []
+    for wk, day in sfc_df.groupby("position_date"):
+        day = day.drop_duplicates(subset=["code"])
+        if exclude_codes:
+            day = day[~day["code"].isin(exclude_codes)]
+        codes = set(day["code"])
+        keep = []
+        for r in day.itertuples():
+            if is_rmb_counter(r.code, getattr(r, "name", "")):
+                alias = "0" + str(r.code)[1:]
+                if alias in codes:
+                    continue
+                shares = sh.get(alias)
+            else:
+                shares = sh.get(r.code)
+            if shares is None or pd.isna(shares) or shares <= 0:
+                continue
+            if r.short_shares <= 0 or r.short_amount_hkd <= 0:
+                continue
+            keep.append((r.short_amount_hkd, r.short_shares, shares))
+        if not keep:
+            continue
+        short_total = float(sum(k[0] for k in keep))
+        mcap_total = float(sum(k[0] / k[1] * k[2] for k in keep))
+        out_rows.append(
+            {
+                "position_date": wk,
+                "n_total": len(day),
+                "n_covered": len(keep),
+                "short_total": short_total,
+                "mcap_total": mcap_total,
+                "ratio": float(short_total / mcap_total) if mcap_total > 0 else None,
+            }
+        )
+    if not out_rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(out_rows).sort_values("position_date").reset_index(drop=True)
+    out["delta_bp"] = out["ratio"].diff() * 1e4
+    return out.tail(weeks).reset_index(drop=True)
+
+
 def sfc_market_metrics(
     sfc_df: pd.DataFrame,
     shares_df: pd.DataFrame,

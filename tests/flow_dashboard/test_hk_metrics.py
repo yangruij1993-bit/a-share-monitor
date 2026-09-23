@@ -195,3 +195,97 @@ def test_sfc_market_metrics_gates():
         _sfc_two_weeks().iloc[:2], _shares(), min_comparable=2, min_coverage=0.5
     )
     assert out2["available"] is False
+
+
+def _sfc_rmb_rows():
+    """两期 SFC：普通股 + 港元柜台 + 同期并存的 RMB 柜台(89988) + 无港元
+    对照的 RMB 柜台(80020)；所有隐含价均为 10，便于手算。"""
+    rows = []
+    for i, wk in enumerate((pd.Timestamp("2026-09-04"), pd.Timestamp("2026-09-11"))):
+        base = 1.0 + i
+        rows += [
+            {
+                "code": "00700",
+                "name": "TENCENT",
+                "position_date": wk,
+                "short_shares": 100.0 * base,
+                "short_amount_hkd": 1000.0 * base,
+            },
+            {
+                "code": "09988",
+                "name": "BABA-W",
+                "position_date": wk,
+                "short_shares": 200.0,
+                "short_amount_hkd": 2000.0,
+            },
+            {
+                "code": "89988",
+                "name": "BABA-WR",
+                "position_date": wk,
+                "short_shares": 999.0,
+                "short_amount_hkd": 9999.0,
+            },
+            {
+                "code": "80020",
+                "name": "SENSETIME-WR",
+                "position_date": wk,
+                "short_shares": 50.0,
+                "short_amount_hkd": 500.0,
+            },
+        ]
+    return pd.DataFrame(rows)
+
+
+def test_is_rmb_counter():
+    assert mx.is_rmb_counter("89988", "BABA-WR") is True
+    assert mx.is_rmb_counter("80016", "SHK PPT-R") is True
+    assert mx.is_rmb_counter("80737", "SUNNICHK") is False  # GEM 8xxxx 不带 -R
+    assert mx.is_rmb_counter("00700", "TENCENT") is False
+    assert mx.is_rmb_counter("89988", "") is False
+
+
+def test_sfc_market_series_rmb_counter_dedup_and_alias():
+    shares = pd.DataFrame(
+        {
+            "code": ["00700", "09988", "00020"],
+            "total_shares": [1000.0, 2000.0, 4000.0],
+        }
+    )
+    out = mx.sfc_market_series(_sfc_rmb_rows(), shares)
+    assert list(out["position_date"]) == [
+        pd.Timestamp("2026-09-04"),
+        pd.Timestamp("2026-09-11"),
+    ]
+    # 每期报告 4 行；89988（RMB 柜台与 09988 同期并存）剔除，80020 经 0 映射
+    # 别名命中 00020 股本 → 覆盖 3 只
+    assert out["n_total"].tolist() == [4, 4]
+    assert out["n_covered"].tolist() == [3, 3]
+    # 隐含价均 10 → 每期 Σ市值 = 10×(1000+2000+4000) = 70000
+    assert out["mcap_total"].tolist() == [70000.0, 70000.0]
+    assert out["short_total"].tolist() == [3500.0, 4500.0]
+    assert out["ratio"].tolist() == [0.05, 4500.0 / 70000.0]
+    assert pd.isna(out.iloc[0]["delta_bp"])
+    assert out.iloc[1]["delta_bp"] == pytest.approx((4500.0 / 70000.0 - 0.05) * 1e4)
+
+
+def test_sfc_market_series_empty_inputs():
+    assert mx.sfc_market_series(pd.DataFrame(), _shares()).empty
+    assert mx.sfc_market_series(_sfc_two_weeks(), pd.DataFrame()).empty
+    # 无任何股本覆盖（codes 对不上）→ 每期覆盖 0，比率无法计算
+    out = mx.sfc_market_series(_sfc_two_weeks(), pd.DataFrame({"code": ["03690"], "total_shares": [1.0]}))
+    assert out.empty
+
+
+def test_sfc_market_series_exclude_codes():
+    """股票口径：exclude_codes（ETF 集合）在 RMB 去重判断前剔除。"""
+    shares = pd.DataFrame(
+        {"code": ["00700", "09988", "00020"], "total_shares": [1000.0, 2000.0, 4000.0]}
+    )
+    out = mx.sfc_market_series(
+        _sfc_rmb_rows(), shares, exclude_codes={"09988", "89988"}
+    )
+    # 剩 00700 + 80020(别名 00020)：n_total=2，隐含价均 10
+    assert out["n_total"].tolist() == [2, 2]
+    assert out["n_covered"].tolist() == [2, 2]
+    assert out["mcap_total"].tolist() == [50000.0, 50000.0]
+    assert out["ratio"].tolist() == [1500.0 / 50000.0, 2500.0 / 50000.0]
