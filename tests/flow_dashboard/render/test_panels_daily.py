@@ -1,4 +1,4 @@
-"""9 个日度 ETF 面板测试。"""
+"""10 个日度 ETF 面板测试（行业为父类，科技/周期为子类专项）。"""
 from __future__ import annotations
 
 import pandas as pd
@@ -7,6 +7,8 @@ import pytest
 from flow_dashboard.render.panels_daily import (
     render_huijin_broad_daily,
     render_tech_tmt_daily,
+    render_tech_cumulative_daily,
+    render_industry_core_cumulative_daily,
     render_total_market_daily,
     render_broad_daily,
     render_industry_theme_daily,
@@ -17,7 +19,7 @@ from flow_dashboard.render.panels_daily import (
 )
 
 
-def _flow_df(labels: list[str], n_days: int = 5):
+def _flow_df(labels: list[str], n_days: int = 5, dimension: str = "asset_scope"):
     rows = []
     base = pd.Timestamp("2026-08-05")
     for label in labels:
@@ -30,7 +32,7 @@ def _flow_df(labels: list[str], n_days: int = 5):
                 "share_in_shares": 100e8,
                 "total_size_cny": 100e8 * 3,
                 "cumulative_flow_cny": (i + 1) * 1e8,
-                "dimension": "ownership",
+                "dimension": dimension,
             })
     return pd.DataFrame(rows)
 
@@ -39,17 +41,11 @@ PANEL_KWARGS = dict(data_date="2026-08-12", coverage=1.0, last_success_at="19:30
 
 
 def test_render_huijin_broad_daily_returns_html_fragment():
-    df = _flow_df(["huijin"])
+    df = _flow_df(["huijin"], dimension="ownership")
     html = render_huijin_broad_daily(df, **PANEL_KWARGS)
     assert "汇金" in html  # 标题含「汇金」
     assert "Plotly.newPlot" in html
     assert 'id="panel-huijin-broad-daily"' in html
-
-
-def test_render_tech_tmt_daily_returns_html_fragment():
-    df = _flow_df(["tech"])
-    html = render_tech_tmt_daily(df, **PANEL_KWARGS)
-    assert "科技" in html or "TMT" in html
 
 
 def test_render_total_market_daily_returns_html_fragment():
@@ -58,22 +54,106 @@ def test_render_total_market_daily_returns_html_fragment():
     assert "全市场合计" in html or "合计" in html
 
 
+def test_render_total_market_daily_dedups_multi_label_rows():
+    """同一 ETF 多标签行（explode 产物）只计一次，不得重复加总。"""
+    day = pd.Timestamp("2026-08-05")
+    rows = []
+    for label, dimension in [("huijin", "ownership"), ("broad", "asset_scope"),
+                             ("csi300", "benchmark")]:
+        rows.append({
+            "trade_date": day, "ts_code": "510300.SH", "label": label,
+            "dimension": dimension, "etf_estimated_flow_cny": 1e8,
+        })
+    html = render_total_market_daily(pd.DataFrame(rows), **PANEL_KWARGS)
+    # 1e8 元 = 1.0 亿；若重复计数会变成 3.0
+    assert '"y":[1.0]' in html
+    assert '"y":[3.0]' not in html
+
+
 def test_render_broad_daily_returns_html_fragment():
     df = _flow_df(["broad"])
     html = render_broad_daily(df, **PANEL_KWARGS)
     assert "宽基" in html
 
 
-def test_render_industry_theme_daily_returns_html_fragment():
+def test_render_tech_tmt_daily_returns_html_fragment():
+    """科技子类专项面板（含于行业全口径，单独细看）。"""
+    df = _flow_df(["tech"])
+    html = render_tech_tmt_daily(df, **PANEL_KWARGS)
+    assert "科技" in html or "TMT" in html
+    assert "Plotly.newPlot" in html
+
+
+def test_render_tech_cumulative_daily_sums_and_accumulates():
+    df = _flow_df(["tech"])
+    html = render_tech_cumulative_daily(df, **PANEL_KWARGS)
+    assert "科技" in html and "累计" in html
+    assert "Plotly.newPlot" in html
+
+
+def test_render_industry_core_cumulative_daily_one_line_per_etf():
+    """传统行业累计对比：每只 ETF 一条折线，不含科技/周期标的。"""
+    df = _flow_df(["industry", "tech", "cycle"])
+    html = render_industry_core_cumulative_daily(df, **PANEL_KWARGS)
+    assert "传统行业" in html and "累计" in html
+    assert "Plotly.newPlot" in html
+    # tech/cycle 的标的代码不应出现在图例中（_flow_df 的 ts_code 含标签后缀）
+    assert "X0.tech" not in html
+    assert "X0.cycle" not in html
+
+
+def test_render_industry_theme_daily_includes_tech_and_cycle():
+    """行业=父类全口径：industry / tech / cycle 标的都进入行业面板。"""
+    df = _flow_df(["industry", "tech", "cycle"])
+    html = render_industry_theme_daily(df, **PANEL_KWARGS)
+    assert "行业" in html
+    assert "Plotly.newPlot" in html
+    assert "13 只" in html  # subtitle 标注全口径数量
+
+
+def test_render_industry_theme_daily_core_only_still_renders():
+    """只有旧 industry 标的时仍正常；三类皆无才 stale。"""
     df = _flow_df(["industry"])
     html = render_industry_theme_daily(df, **PANEL_KWARGS)
-    assert "行业主题" in html or "行业" in html
+    assert "Plotly.newPlot" in html
 
 
 def test_render_category_cumulative_daily_returns_html_fragment():
     df = _flow_df(["broad", "industry"])
     html = render_category_cumulative_daily(df, **PANEL_KWARGS)
     assert "资产类别" in html or "堆叠" in html
+
+
+def test_render_category_cumulative_daily_merges_and_dedups():
+    """growth→宽基、tech/cycle→行业，每只 ETF 每日只计一次，两段=全市场。"""
+    day = pd.Timestamp("2026-08-05")
+    rows = [
+        # 创业板 ETF 同日挂 growth+broad 两个 asset_scope 标签（同一流量值）
+        {"trade_date": day, "ts_code": "159915.SZ", "label": "growth",
+         "dimension": "asset_scope", "etf_estimated_flow_cny": 1e8},
+        {"trade_date": day, "ts_code": "159915.SZ", "label": "broad",
+         "dimension": "asset_scope", "etf_estimated_flow_cny": 1e8},
+        # 半导体 ETF（tech）与钢铁 ETF（cycle）都归入行业段
+        {"trade_date": day, "ts_code": "512480.SH", "label": "tech",
+         "dimension": "asset_scope", "etf_estimated_flow_cny": 2e8},
+        {"trade_date": day, "ts_code": "515220.SH", "label": "cycle",
+         "dimension": "asset_scope", "etf_estimated_flow_cny": 3e8},
+        # 汇金维度应被排除
+        {"trade_date": day, "ts_code": "510300.SH", "label": "huijin",
+         "dimension": "ownership", "etf_estimated_flow_cny": 5e8},
+    ]
+    html = render_category_cumulative_daily(pd.DataFrame(rows), **PANEL_KWARGS)
+    # 归一后只剩 宽基(1.0) 与 行业(2.0+3.0=5.0) 两个 trace；
+    # plotly to_html 会把图例名转义为 \uXXXX（宽基 / 行业）
+    assert '"name":"\\u5bbd\\u57fa"' in html
+    assert '"name":"\\u884c\\u4e1a"' in html
+    assert "growth" not in html
+    assert "tech" not in html
+    assert "cycle" not in html
+    # 创业板只计一次：宽基柱 = 1.0 而非 2.0；行业段为 tech(2.0)+cycle(3.0) 两行
+    # （同 x 由 Plotly 堆叠，段高 = 5.0；不会出现汇总前的 huijin 5.0 单值）
+    assert '"y":[1.0]' in html
+    assert '"y":[2.0,3.0]' in html
 
 
 def test_render_cycle_daily_returns_html_fragment():
@@ -96,6 +176,22 @@ def test_render_top15_etf_daily_returns_html_fragment():
     assert "TOP15" in html or "TOP" in html
     # TOP15 应被截断到前 15 只；ETF015（第 16 只）不应出现
     assert "ETF015" not in html
+
+
+def test_render_top15_etf_daily_dedups_multi_label_rows():
+    """多标签 ETF 不得重复上榜（explode 后同日多行只算一次）。"""
+    day = pd.Timestamp("2026-08-05")
+    rows = []
+    # 一只多标签 ETF（3 行）+ 两只单标签 ETF → 榜单最多 3 个不同标的
+    for label, dimension in [("huijin", "ownership"), ("broad", "asset_scope"),
+                             ("csi50", "benchmark")]:
+        rows.append({"trade_date": day, "ts_code": "510050.SH", "label": label,
+                     "dimension": dimension, "etf_estimated_flow_cny": 9e8})
+    for code in ("512660.SH", "512800.SH"):
+        rows.append({"trade_date": day, "ts_code": code, "label": "industry",
+                     "dimension": "asset_scope", "etf_estimated_flow_cny": 5e8})
+    html = render_top15_etf_daily(pd.DataFrame(rows), **PANEL_KWARGS)
+    assert html.count("510050.SH") <= 1  # hover 里最多出现一次
 
 
 def test_render_handles_empty_df_gracefully():

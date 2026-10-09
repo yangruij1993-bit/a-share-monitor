@@ -10,6 +10,45 @@ from __future__ import annotations
 
 import pandas as pd
 
+_SCOPE_MERGE = {"tech": "industry", "growth": "broad", "cycle": "industry"}
+_SCOPE_DETAIL = {"growth": "broad", "industry": "industry_core"}
+
+
+def dedup_flow_by_etf_day(flow_df: pd.DataFrame) -> pd.DataFrame:
+    """跨标签聚合前按 (ts_code, trade_date) 去重。
+
+    pipeline 在 compute_etf_flow 之后 merge pit_labels，同一 (ts_code, trade_date)
+    会按标签数复制多行（如 510050 同时挂 huijin/broad/csi50 三行）。
+    任何"把不同标签的行加总"的面板（全市场合计 / TOP15 / 月度合计）必须先
+    去重，否则多标签 ETF 会被重复计数。
+    """
+    if flow_df.empty:
+        return flow_df
+    return flow_df.drop_duplicates(subset=["ts_code", "trade_date"])
+
+
+def normalize_asset_scope(
+    flow_df: pd.DataFrame, *, merge_subcategories: bool = True
+) -> pd.DataFrame:
+    """asset_scope 维度归一，并按 (ts_code, trade_date, label) 去重。
+
+    merge_subcategories=True → 两类：宽基 / 行业
+    - tech / cycle 并入 industry（科技、钢铁、煤炭均属行业口径）
+    - growth 并入 broad（创业板 ETF 归宽基，与宽基面板一致）
+
+    merge_subcategories=False → 细分：宽基 / 行业(传统) / 科技 / 周期
+    - growth 并入 broad；industry 重命名为 industry_core 以区分行业全口径
+
+    输入应已过滤 dimension == "asset_scope"。归一后每只 ETF 每日只计一次，
+    各段之和 = 全市场合计（不重复计数）。
+    """
+    if flow_df.empty:
+        return flow_df
+    df = flow_df.copy()
+    mapping = _SCOPE_MERGE if merge_subcategories else _SCOPE_DETAIL
+    df["label"] = df["label"].map(mapping).fillna(df["label"])
+    return df.drop_duplicates(subset=["ts_code", "trade_date", "label"])
+
 
 def aggregate_weekly_flow(flow_df: pd.DataFrame) -> pd.DataFrame:
     """按 (dimension, label, week_start) 聚合 etf_estimated_flow_cny。"""

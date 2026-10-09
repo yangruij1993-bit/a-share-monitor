@@ -56,7 +56,7 @@ def render_broad_weekly(
 def render_industry_theme_weekly(
     df: pd.DataFrame, *, data_date: str, coverage: float | None, last_success_at: str | None
 ) -> str:
-    sub = df[df["label"] == "industry"] if "label" in df.columns else df
+    sub = df[df["label"].isin(["industry", "tech"])] if "label" in df.columns else df
     stale = _stale_or_none(sub, coverage,
                            "panel-industry-weekly", "行业/主题 ETF 周度流量")
     if stale:
@@ -88,7 +88,8 @@ def render_monthly_total(
     stale = _stale_or_none(df, coverage, "panel-monthly-total", "月度合计")
     if stale:
         return stale
-    # 月度合计：所有 label 在 month_start 上汇总
+    # 月度合计：输入若为 explode 后的日度行需已去重（见 pipeline 调用处），
+    # 同一 (ts_code, trade_date) 只计一次，否则多标签 ETF 会被重复加总
     agg = df.groupby("month_start", as_index=False)["etf_estimated_flow_cny"].sum()
     agg["label"] = "ALL"
     agg = agg.rename(columns={"month_start": "period_start"})

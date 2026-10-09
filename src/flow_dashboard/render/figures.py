@@ -19,6 +19,22 @@ _CNY_TO_YI = 1e8  # 亿元
 # 多 ETF 堆叠柱图的调色板（Dark24，色盲友好且对比度高）
 _ETF_PALETTE = px.colors.qualitative.Dark24
 
+# 分类图例显示名：堆叠/多线面板的 label 原值是英文 slug，直接展示易混淆
+_LABEL_DISPLAY = {
+    "broad": "宽基",
+    "tech": "科技",
+    "industry": "行业",
+    "industry_core": "行业(传统)",
+    "cycle": "周期",
+    "growth": "成长",
+    "huijin": "汇金",
+    "ALL": "全市场",
+}
+
+
+def _label_display(label: str) -> str:
+    return _LABEL_DISPLAY.get(label, label)
+
 
 def _to_yi(values: pd.Series | list[float]) -> list[float | None]:
     return [v / _CNY_TO_YI if pd.notna(v) else None for v in values]
@@ -104,6 +120,45 @@ def line_cumulative_panel(
     )
 
 
+def multi_line_cumulative_panel(
+    df: pd.DataFrame,
+    *,
+    title: str,
+    data_date: str,
+    coverage: float | None = None,
+    last_success_at: str | None = None,
+    y_unit: str = "亿元",
+) -> go.Figure:
+    """多 ETF 累计净流入对比折线：每只 ETF 一条线（按 ts_code 分组累计）。"""
+    fig = go.Figure()
+    codes = sorted(df["ts_code"].dropna().unique())
+    for i, ts_code in enumerate(codes):
+        sub = (
+            df[df["ts_code"] == ts_code]
+            .sort_values("trade_date")
+            .groupby("trade_date", as_index=False)["etf_estimated_flow_cny"]
+            .sum()
+            .sort_values("trade_date")
+        )
+        cum = sub["etf_estimated_flow_cny"].cumsum()
+        display_name = etf_display_name(str(ts_code))
+        fig.add_trace(go.Scatter(
+            name=display_name,
+            x=sub["trade_date"].astype(str).tolist(),
+            y=_to_yi(cum.tolist()),
+            mode="lines",
+            line={"color": _ETF_PALETTE[i % len(_ETF_PALETTE)]},
+            hovertemplate=(
+                f"{display_name} ({ts_code})<br>"
+                "%{x}<br>累计 %{y:.2f} 亿元<extra></extra>"
+            ),
+        ))
+    return apply_theme(
+        fig, title=title, y_title=y_unit, data_date=data_date,
+        coverage=coverage, last_success_at=last_success_at, unit=y_unit,
+    )
+
+
 def stacked_bar_breakdown_panel(
     df: pd.DataFrame,
     *,
@@ -117,7 +172,7 @@ def stacked_bar_breakdown_panel(
     for label, sub in df.groupby("label", sort=False):
         sub = sub.sort_values("trade_date")
         fig.add_trace(go.Bar(
-            name=str(label),
+            name=_label_display(str(label)),
             x=sub["trade_date"].astype(str).tolist(),
             y=_to_yi(sub["etf_estimated_flow_cny"].tolist()),
         ))
@@ -149,7 +204,7 @@ def horizontal_topn_panel(
     ]
     fig.add_trace(go.Bar(
         orientation="h",
-        y=df["ts_code"].astype(str).tolist(),
+        y=[etf_display_name(str(c)) for c in df["ts_code"]],
         x=flows_yi,
         marker_color=colors,
         showlegend=False,
@@ -174,7 +229,7 @@ def multi_line_period_panel(
     for label, sub in df.groupby("label", sort=False):
         sub = sub.sort_values(period_col)
         fig.add_trace(go.Scatter(
-            name=str(label),
+            name=_label_display(str(label)),
             x=sub[period_col].astype(str).tolist(),
             y=_to_yi(sub["etf_estimated_flow_cny"].tolist()),
             mode="lines+markers",

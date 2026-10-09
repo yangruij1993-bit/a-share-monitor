@@ -197,13 +197,15 @@ def _run_eod_preview_inner(
     # 与 render/panels_*.py 中 div_id 保持一致；下游 manifest → panel 映射按此列表对齐。
     panel_ids = [
         "panel-huijin-broad-daily",
-        "panel-tech-tmt-daily",
         "panel-total-market-daily",
         "panel-broad-daily",
         "panel-industry-theme-daily",
-        "panel-category-cumulative-daily",
+        "panel-tech-tmt-daily",
+        "panel-tech-cumulative-daily",
+        "panel-industry-core-cumulative-daily",
         "panel-cycle-daily",
         "panel-cycle-cumulative-daily",
+        "panel-category-cumulative-daily",
         "panel-top15-daily",
         "panel-broad-weekly",
         "panel-industry-weekly",
@@ -238,6 +240,8 @@ def _run_eod_preview_inner(
         render_huijin_broad_daily,
         render_industry_theme_daily,
         render_tech_tmt_daily,
+        render_tech_cumulative_daily,
+        render_industry_core_cumulative_daily,
         render_top15_etf_daily,
         render_total_market_daily,
     )
@@ -384,17 +388,19 @@ def _run_eod_preview_inner(
             anchor_id="section-etf",
             num="01",
             title="ETF 被动资金 · 日度流量",
-            subtitle="国家队 / 宽基 / 科技 / 行业 / 周期",
+            subtitle="国家队专项 / 宽基 / 行业（含科技、周期子类专项）",
         )
     )
     body_parts.append(render_huijin_broad_daily(flow, **kwargs))
-    body_parts.append(render_tech_tmt_daily(flow, **kwargs))
     body_parts.append(render_total_market_daily(flow, **kwargs))
     body_parts.append(render_broad_daily(flow, **kwargs))
     body_parts.append(render_industry_theme_daily(flow, **kwargs))
-    body_parts.append(render_category_cumulative_daily(flow, **kwargs))
+    body_parts.append(render_tech_tmt_daily(flow, **kwargs))
+    body_parts.append(render_tech_cumulative_daily(flow, **kwargs))
+    body_parts.append(render_industry_core_cumulative_daily(flow, **kwargs))
     body_parts.append(render_cycle_daily(flow, **kwargs))
     body_parts.append(render_cycle_cumulative_daily(flow, **kwargs))
+    body_parts.append(render_category_cumulative_daily(flow, **kwargs))
     body_parts.append(render_top15_etf_daily(flow, **kwargs))
 
     # §2 杠杆资金（两融）：交易所 + 行业
@@ -466,23 +472,40 @@ def _run_eod_preview_inner(
     from flow_dashboard.indicators.flow_aggregation import (
         aggregate_monthly_flow,
         aggregate_weekly_flow,
+        dedup_flow_by_etf_day,
+        normalize_asset_scope,
     )
 
     if not flow.empty:
         weekly = aggregate_weekly_flow(flow)
         weekly = weekly.rename(columns={"week_start": "period_start"})
+        # 行业周度线：归一化全口径（tech/cycle 并入 industry，一条线 = 13 只）
+        # 分类周度线：细分四段（宽基/行业传统/科技/周期），各段去重不重复计数，
+        # 且不再画 huijin/benchmark 维度的重复序列
+        scope = flow[flow["dimension"] == "asset_scope"]
+        industry_weekly = aggregate_weekly_flow(normalize_asset_scope(scope))
+        industry_weekly = industry_weekly.rename(columns={"week_start": "period_start"})
+        category_weekly = aggregate_weekly_flow(
+            normalize_asset_scope(scope, merge_subcategories=False)
+        )
+        category_weekly = category_weekly.rename(
+            columns={"week_start": "period_start"}
+        )
     else:
         weekly = pd.DataFrame()
+        industry_weekly = pd.DataFrame()
+        category_weekly = pd.DataFrame()
     w_kwargs = {
         "data_date": data_date,
         "coverage": 0.95 if not weekly.empty else None,
         "last_success_at": as_of.strftime("%Y-%m-%d %H:%M"),
     }
     body_parts.append(render_broad_weekly(weekly, **w_kwargs))
-    body_parts.append(render_industry_theme_weekly(weekly, **w_kwargs))
-    body_parts.append(render_category_cumulative_weekly(weekly, **w_kwargs))
+    body_parts.append(render_industry_theme_weekly(industry_weekly, **w_kwargs))
+    body_parts.append(render_category_cumulative_weekly(category_weekly, **w_kwargs))
     if not flow.empty:
-        monthly = aggregate_monthly_flow(flow)
+        # 月度合计前按 (ts_code, trade_date) 去重：explode 后同一 ETF 每日多行
+        monthly = aggregate_monthly_flow(dedup_flow_by_etf_day(flow))
     else:
         monthly = pd.DataFrame()
     body_parts.append(render_monthly_total(monthly, **w_kwargs))
