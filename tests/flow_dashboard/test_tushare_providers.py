@@ -175,3 +175,80 @@ def test_normalize_etf_share_size_suffix_invariant():
         out_base.loc[common], out_suffix.loc[common],
         check_like=True,
     )
+
+
+# === Task 2: margin_detail（个股两融明细，分页拉全沪深北） ===
+
+def test_pull_margin_detail_paginates_until_short_page(monkeypatch):
+    """单次请求被截断（约 2000 行沪市），必须 limit/offset 分页拉全沪深北。
+
+    实测 2026-10-09 全量 4455 行（SH 2001 / SZ 2108 / BJ 346）；
+    不分页时深市（含创业板 300/301）整体缺失。
+    """
+    from flow_dashboard.data import tushare_providers
+
+    page_rows = 1000
+    total = 2445  # 3 页：1000 + 1000 + 445
+
+    class _FakePro:
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def margin_detail(self, trade_date, limit=None, offset=None):
+            self.calls.append({"trade_date": trade_date, "limit": limit, "offset": offset})
+            start = offset or 0
+            n = min(page_rows, max(total - start, 0))
+            return pd.DataFrame({
+                "trade_date": ["20261009"] * n,
+                "ts_code": [f"{300000 + start + i}.SZ" for i in range(n)],
+                "rzye": [1e8] * n,
+                "rqye": [0.0] * n,
+                "rzmre": [1e7] * n,
+                "rqyl": [0.0] * n,
+            })
+
+    fake = _FakePro()
+    monkeypatch.setattr(tushare_providers, "get_pro_api", lambda: fake)
+
+    df = tushare_providers.pull_margin_detail("20261009")
+    assert len(df) == total
+    assert len(fake.calls) == 3
+    assert fake.calls[0]["offset"] == 0
+    assert fake.calls[1]["offset"] == 1000
+    assert fake.calls[2]["offset"] == 2000
+    assert pd.api.types.is_datetime64_any_dtype(df["trade_date"])
+
+
+def test_pull_margin_detail_single_page(monkeypatch):
+    """不足一页时只调一次，正常返回。"""
+    from flow_dashboard.data import tushare_providers
+
+    class _FakePro:
+        def margin_detail(self, trade_date, limit=None, offset=None):
+            return pd.DataFrame({
+                "trade_date": ["20261009"] * 5,
+                "ts_code": [f"60000{i}.SH" for i in range(5)],
+                "rzye": [1e8] * 5, "rqye": [0.0] * 5,
+                "rzmre": [1e7] * 5, "rqyl": [0.0] * 5,
+            })
+
+    monkeypatch.setattr(
+        tushare_providers, "get_pro_api", lambda: _FakePro()
+    )
+    df = tushare_providers.pull_margin_detail("20261009")
+    assert len(df) == 5
+
+
+def test_pull_margin_detail_empty(monkeypatch):
+    """无数据日（周末/节假日）返回空 df，不抛错。"""
+    from flow_dashboard.data import tushare_providers
+
+    class _FakePro:
+        def margin_detail(self, trade_date, limit=None, offset=None):
+            return pd.DataFrame()
+
+    monkeypatch.setattr(
+        tushare_providers, "get_pro_api", lambda: _FakePro()
+    )
+    df = tushare_providers.pull_margin_detail("20261010")
+    assert df.empty

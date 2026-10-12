@@ -49,7 +49,8 @@ def test_suffix_invariance_e2e(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "flow_dashboard.pipeline._load_etf_share_for_pipeline", mock_load
     )
-    for m in ("_load_margin_for_pipeline", "_load_fut_daily_for_pipeline",
+    for m in ("_load_margin_for_pipeline", "_load_margin_detail_for_pipeline",
+              "_load_fut_daily_for_pipeline",
               "_load_index_daily_for_pipeline", "_load_fund_nav_for_pipeline"):
         monkeypatch.setattr(
             f"flow_dashboard.pipeline.{m}",

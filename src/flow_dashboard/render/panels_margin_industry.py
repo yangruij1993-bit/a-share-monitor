@@ -171,6 +171,14 @@ def render_margin_industry_heatmap(
             _stale_message(), stale=True,
         )
 
+    # 明细窗口不足 5 个交易日时 5d_change 全 NaN，pivot_table 会丢弃全 NaN
+    # 列导致空表 IndexError；降级 stale 而不是让整份日报发布失败
+    if "net_margin_5d_change" not in df.columns or not df["net_margin_5d_change"].notna().any():
+        return _wrap_panel(
+            _PANEL_ID, _PANEL_TITLE, subtitle,
+            _stale_message("5 日净变化不可得（历史窗口不足 5 个交易日）"), stale=True,
+        )
+
     table_html = _build_table_html(df, n_trading_days=n_trading_days)
     last_line = (
         f'<div style="font-size:11px;color:#888;margin-top:8px;">'

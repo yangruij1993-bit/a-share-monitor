@@ -30,6 +30,10 @@ def _mock_ashare_empty(monkeypatch):
         "flow_dashboard.pipeline._load_fund_nav_for_pipeline",
         lambda codes, start, end, as_of: pd.DataFrame(),
     )
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._load_margin_detail_for_pipeline",
+        lambda start, end, as_of: pd.DataFrame(),
+    )
 
 
 def test_eod_preview_renders_both_tabs_and_dual_dates(tmp_path, monkeypatch):

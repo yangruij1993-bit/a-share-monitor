@@ -79,3 +79,36 @@ def test_aggregate_market_margin_out_of_tolerance_flag():
     # ALL = SSE + SZSE + BSE，应当反映新的总和
     assert all_row["rzye"] == pytest.approx(9000e8 + 7000e8 + 8.3e9)
     # 若有 summary 校验：明细加总 = ALL，则不标；本测试中它们相等（ALL 就是 sum）
+
+
+# === 创业板融资余额（300/301 前缀汇总，趋势面板源数据） ===
+
+def test_aggregate_chinext_margin_sums_300_301_only():
+    from flow_dashboard.indicators.margin import aggregate_chinext_margin
+
+    df = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2026-08-05"), "ts_code": "300001.SZ",
+         "rzye": 10e8, "rqye": 0.0},
+        {"trade_date": pd.Timestamp("2026-08-05"), "ts_code": "301001.SZ",
+         "rzye": 20e8, "rqye": 0.0},
+        {"trade_date": pd.Timestamp("2026-08-05"), "ts_code": "600000.SH",
+         "rzye": 100e8, "rqye": 0.0},
+        {"trade_date": pd.Timestamp("2026-08-05"), "ts_code": "000001.SZ",
+         "rzye": 200e8, "rqye": 0.0},  # 深市主板，不计入
+        {"trade_date": pd.Timestamp("2026-08-06"), "ts_code": "300001.SZ",
+         "rzye": 12e8, "rqye": 0.0},
+    ])
+    out = aggregate_chinext_margin(df)
+    assert list(out.columns) == ["trade_date", "chinext_rzye"]
+    d1 = out[out["trade_date"] == pd.Timestamp("2026-08-05")].iloc[0]
+    assert d1["chinext_rzye"] == pytest.approx(30e8)
+    d2 = out[out["trade_date"] == pd.Timestamp("2026-08-06")].iloc[0]
+    assert d2["chinext_rzye"] == pytest.approx(12e8)
+
+
+def test_aggregate_chinext_margin_empty_input():
+    from flow_dashboard.indicators.margin import aggregate_chinext_margin
+
+    out = aggregate_chinext_margin(pd.DataFrame(columns=["trade_date", "ts_code", "rzye"]))
+    assert out.empty
+    assert list(out.columns) == ["trade_date", "chinext_rzye"]

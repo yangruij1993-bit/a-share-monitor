@@ -194,6 +194,29 @@ def test_render_top15_etf_daily_dedups_multi_label_rows():
     assert html.count("510050.SH") <= 1  # hover 里最多出现一次
 
 
+def test_render_top15_skips_latest_date_with_only_nan_flow():
+    """最新交易日流量全 NaN（份额先到、净值缺失）时回退到最新有效交易日。
+
+    实测场景：10-11 仅 2 只深市 ETF 份额入库且 missing_nav → flow 全 NaN，
+    直接按 trade_date.max() 切片会画出 2 根 null 柱（空图）。
+    """
+    d_valid = pd.Timestamp("2026-08-05")
+    d_nan = pd.Timestamp("2026-08-06")
+    rows = []
+    for i in range(3):
+        rows.append({"trade_date": d_valid, "ts_code": f"ETF{i:03d}.SH",
+                     "label": "broad", "dimension": "asset_scope",
+                     "etf_estimated_flow_cny": (i + 1) * 1e8})
+    rows.append({"trade_date": d_nan, "ts_code": "159915.SZ", "label": "growth",
+                 "dimension": "asset_scope", "etf_estimated_flow_cny": None})
+    html = render_top15_etf_daily(pd.DataFrame(rows), **PANEL_KWARGS)
+    # 回退到 08-05：3 根有效柱，而不是 1 根 null
+    assert '"x":[null' not in html
+    assert html.count("ETF00") >= 1
+    # 副标题应标注实际数据日期，避免与报告日期混淆
+    assert "08-05" in html
+
+
 def test_render_handles_empty_df_gracefully():
     """spec §3.5 共通验收：上游失败时面板显式 stale，不渲染空 figure。"""
     empty = pd.DataFrame(columns=["trade_date", "ts_code", "label",

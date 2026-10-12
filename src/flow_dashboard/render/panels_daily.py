@@ -265,9 +265,19 @@ def render_top15_etf_daily(
     stale = _stale_or_none(df, coverage, "panel-top15-daily", title, subtitle)
     if stale:
         return stale
+    # 剔除 NaN 流量（份额先入库、净值未到 → flow 全 NaN）后再选最新交易日，
+    # 否则会切到只有部分 ETF 有数据的日期，画出全 null 柱（空图）
+    valid = df[df["etf_estimated_flow_cny"].notna()]
+    if valid.empty:
+        return _wrap_panel(
+            "panel-top15-daily", title, _stale_message("流量数据不可得（份额/净值未入库）"),
+            stale=True, subtitle=subtitle,
+        )
     # 多标签 ETF 在 explode 后同日有多行，先去重避免同一 ETF 重复上榜/条长×N
-    latest = df[df["trade_date"] == df["trade_date"].max()]
+    latest = valid[valid["trade_date"] == valid["trade_date"].max()]
     latest = latest.drop_duplicates(subset=["ts_code", "trade_date"])
+    eff_date = pd.Timestamp(latest["trade_date"].iloc[0]).strftime("%Y-%m-%d")
+    subtitle = f"数据截至 {eff_date}：|净流入| 最大的 15 只 —— 单日焦点标的速览"
     fig = horizontal_topn_panel(latest, title=title,
                                 data_date=data_date, coverage=coverage,
                                 last_success_at=last_success_at, topn=15)

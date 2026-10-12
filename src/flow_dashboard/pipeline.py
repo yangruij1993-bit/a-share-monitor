@@ -212,6 +212,7 @@ def _run_eod_preview_inner(
         "panel-category-weekly",
         "panel-monthly-total",
         "panel-margin-exchange",
+        "panel-margin-trend",
         "panel-basis",
         "panel-margin-industry-heatmap",  # NEW (Phase C)
         # NEW (HK short) — 港股 tab 四面板
@@ -225,6 +226,7 @@ def _run_eod_preview_inner(
     from flow_dashboard.indicators.basis import compute_basis, tenor_contracts
     from flow_dashboard.indicators.etf_flow import compute_etf_flow
     from flow_dashboard.indicators.margin import (
+        aggregate_chinext_margin,
         aggregate_margin_by_industry,
         aggregate_market_margin,
         compute_net_margin_change,
@@ -245,7 +247,10 @@ def _run_eod_preview_inner(
         render_top15_etf_daily,
         render_total_market_daily,
     )
-    from flow_dashboard.render.panels_margin import render_margin_exchange_panel
+    from flow_dashboard.render.panels_margin import (
+        render_margin_exchange_panel,
+        render_margin_trend_panel,
+    )
     from flow_dashboard.render.panels_margin_industry import (
         render_margin_industry_heatmap,
     )
@@ -419,6 +424,27 @@ def _run_eod_preview_inner(
         "reconciliation_tolerance": None,
     }
     body_parts.append(render_margin_exchange_panel(m, **m_kwargs))
+
+    # 融资余额长期趋势（约 2 年窗口，缓存支撑；全市场=三所汇总 ALL 行，
+    # 创业板=个股两融明细 300/301 前缀按日汇总）
+    margin_trend_start = pd.Timestamp(data_date) - pd.DateOffset(years=2)
+    margin_long = _load_margin_for_pipeline(margin_trend_start, end, as_of)
+    margin_detail_long = _load_margin_detail_for_pipeline(margin_trend_start, end, as_of)
+    market_long_agg = (
+        aggregate_market_margin(margin_long, market_scope=None)
+        if not margin_long.empty
+        else pd.DataFrame()
+    )
+    chinext_agg = aggregate_chinext_margin(margin_detail_long)
+    body_parts.append(
+        render_margin_trend_panel(
+            market_long_agg,
+            chinext_agg,
+            data_date=data_date,
+            coverage=1.0 if not (market_long_agg.empty and chinext_agg.empty) else None,
+            last_success_at=as_of_format(as_of),
+        )
+    )
 
     # Phase C 第 16 面板：行业 5 日净变化表
     margin_detail_df = _load_margin_detail_for_pipeline(start, end, as_of)

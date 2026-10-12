@@ -515,7 +515,8 @@ def load_margin_detail(
     """加载个股两融明细，按 trade_date 增量缓存，PIT 过滤。
 
     每个交易日单独缓存一个 parquet（`margin_detail_YYYYMMDD.parquet`），
-    失败一天不影响其他日。
+    失败一天不影响其他日。空数据日（周末/节假日）落空哨兵文件，
+    后续长窗口运行不再重探（否则趋势面板 2 年窗口每次多打数百次 API）。
     """
     cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -532,10 +533,20 @@ def load_margin_detail(
             cached = cached[cached["available_at"] <= as_of]
             if not cached.empty:
                 out_frames.append(cached)
-                continue
+            # 文件存在即"已问过"（含空哨兵），不再重拉
+            continue
 
         fresh = _pull_margin_detail_for_load(d.strftime("%Y%m%d"))
         if fresh.empty:
+            # 该日 19:00 发布时点已过 → 真非交易日，落哨兵防止长窗口反复探测；
+            # 未到 19:00 的空结果是"尚未发布"，不落哨兵（否则文件存在即跳过，
+            # 当晚 eod_preview 的补拉会被永久阻断）
+            day_publish = pd.Timestamp(d.strftime("%Y-%m-%d")) + pd.Timedelta(hours=19)
+            as_of_ts = pd.Timestamp(as_of)
+            if as_of_ts.tzinfo is not None:
+                as_of_ts = as_of_ts.tz_convert(TIMEZONE).tz_localize(None)
+            if use_cache and as_of_ts >= day_publish:
+                _empty_with_audit().to_parquet(cache_path)
             continue
         fresh = _annotate_margin_detail(fresh, fetched_at)
         fresh = fresh[fresh["available_at"] <= as_of]

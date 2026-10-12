@@ -77,6 +77,31 @@ def compute_weekly_change(
     ).reset_index(drop=True)
 
 
+CHINEXT_CODE_PREFIXES = ("300", "301")
+
+
+def aggregate_chinext_margin(df: pd.DataFrame) -> pd.DataFrame:
+    """按交易日汇总创业板融资余额（个股两融明细 300/301 前缀）。
+
+    Args:
+        df: margin_detail，含 trade_date, ts_code, rzye
+
+    Returns:
+        DataFrame[trade_date, chinext_rzye]（单位：元），按 trade_date 升序
+    """
+    out_cols = ["trade_date", "chinext_rzye"]
+    if df.empty:
+        return pd.DataFrame(columns=out_cols)
+    mask = df["ts_code"].str[:3].isin(CHINEXT_CODE_PREFIXES)
+    sub = df[mask]
+    if sub.empty:
+        return pd.DataFrame(columns=out_cols)
+    agg = sub.groupby("trade_date", as_index=False).agg(
+        chinext_rzye=("rzye", "sum"),
+    )
+    return agg.sort_values("trade_date").reset_index(drop=True)
+
+
 def aggregate_margin_by_industry(
     margin_df: pd.DataFrame,
     members_daily: pd.DataFrame,

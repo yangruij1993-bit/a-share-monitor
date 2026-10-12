@@ -93,3 +93,71 @@ def test_load_margin_detail_uses_cache_on_second_call(tmp_path):
         )
     # 5 个 trade_date 只在第一次调；第二次走缓存
     assert mock.call_count == 5
+
+
+def test_load_margin_detail_caches_empty_day_sentinel(tmp_path):
+    """空数据日（周末/节假日）落空哨兵文件，后续运行不再重探。
+
+    趋势面板用 2 年长窗口，若每个非交易日都重新探测，单次运行会
+    多打数百次无效 API 调用。
+    """
+    calls = {"n": 0}
+
+    def _fake(trade_date: str) -> pd.DataFrame:
+        calls["n"] += 1
+        if pd.Timestamp(trade_date).weekday() >= 5:
+            return pd.DataFrame()  # 08-08(六)/08-09(日) 无数据
+        return _fake_margin_detail(trade_date)
+
+    start = pd.Timestamp("2026-08-07")
+    end = pd.Timestamp("2026-08-11")
+    as_of = pd.Timestamp("2026-08-12", tz="Asia/Shanghai")
+    with patch(
+        "flow_dashboard.data.loaders._pull_margin_detail_for_load",
+        side_effect=_fake,
+    ):
+        load_margin_detail(start=start, end=end, as_of=as_of, cache_dir=tmp_path)
+        load_margin_detail(start=start, end=end, as_of=as_of, cache_dir=tmp_path)
+    # 5 个日历日各拉一次；第二次（含两个空日）全走哨兵/数据缓存
+    assert calls["n"] == 5
+
+
+def test_load_margin_detail_no_sentinel_before_publish_time(tmp_path):
+    """当日 19:00 发布时点未到时查到的空结果是"尚未发布"，不落哨兵。
+
+    回归：若落哨兵，当晚 eod_preview 的补拉会被永久阻断（文件存在即跳过），
+    该交易日数据从此缺失。
+    """
+    state = {"published": False}
+    calls = {"20260811": 0}
+
+    def _fake(trade_date: str) -> pd.DataFrame:
+        if trade_date == "20260811":
+            calls["20260811"] += 1
+            if not state["published"]:
+                return pd.DataFrame()  # 15:00 查询：当日数据尚未发布
+        return _fake_margin_detail(trade_date)
+
+    start = end = pd.Timestamp("2026-08-11")
+    with patch(
+        "flow_dashboard.data.loaders._pull_margin_detail_for_load",
+        side_effect=_fake,
+    ):
+        # 15:00（发布前）：空结果不落哨兵
+        load_margin_detail(
+            start=start, end=end,
+            as_of=pd.Timestamp("2026-08-11 15:00", tz="Asia/Shanghai"),
+            cache_dir=tmp_path,
+        )
+        assert not (tmp_path / "margin_detail_20260811.parquet").exists()
+
+        # 20:00（发布后）：重新拉取，数据入库
+        state["published"] = True
+        df = load_margin_detail(
+            start=start, end=end,
+            as_of=pd.Timestamp("2026-08-11 20:00", tz="Asia/Shanghai"),
+            cache_dir=tmp_path,
+        )
+    assert calls["20260811"] == 2  # 发布后确实重拉了
+    assert len(df) == 2
+    assert (tmp_path / "margin_detail_20260811.parquet").exists()

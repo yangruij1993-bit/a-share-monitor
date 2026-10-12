@@ -38,6 +38,10 @@ def test_daily_finalize_increments_version(tmp_path, monkeypatch):
         "flow_dashboard.pipeline._load_fund_nav_for_pipeline",
         lambda codes, start, end, as_of: pd.DataFrame(),
     )
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._load_margin_detail_for_pipeline",
+        lambda start, end, as_of: pd.DataFrame(),
+    )
 
     output_dir = tmp_path / "x"
     as_of_eod = pd.Timestamp("2026-08-12 19:30", tz="Asia/Shanghai")
@@ -65,7 +69,8 @@ def test_daily_finalize_does_not_mark_partial_when_full(monkeypatch, tmp_path):
              "source": "tushare", "source_version": "v1", "is_stale": False},
         ]),
     )
-    for m in ("_load_margin_for_pipeline", "_load_fut_daily_for_pipeline",
+    for m in ("_load_margin_for_pipeline", "_load_margin_detail_for_pipeline",
+              "_load_fut_daily_for_pipeline",
               "_load_index_daily_for_pipeline", "_load_fund_nav_for_pipeline"):
         monkeypatch.setattr(
             f"flow_dashboard.pipeline.{m}",

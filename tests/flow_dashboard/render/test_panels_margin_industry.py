@@ -57,3 +57,20 @@ def test_render_margin_industry_heatmap_coverage_none_stale():
         coverage=None, last_success_at="19:30",
     )
     assert "stale" in html.lower() or "数据不可得" in html
+
+
+def test_render_margin_industry_heatmap_all_nan_5d_change_stale():
+    """5 日变化全 NaN（明细窗口 ≤5 个交易日）不得抛异常，降级 stale。
+
+    回归：pivot_table 会丢弃全 NaN 列 → 空 pivot 的 iloc[:, -1] IndexError
+    曾导致整份日报发布失败。
+    """
+    df = _industry_df(n_days=1)  # 单日 → shift(5) 后 5d_change 全 NaN
+    df["net_margin_5d_change"] = None
+    html = render_margin_industry_heatmap(
+        df, data_date="2026-08-12",
+        coverage=1.0, last_success_at="19:30",
+    )
+    assert 'id="panel-margin-industry-heatmap"' in html
+    assert "历史窗口不足" in html
+    assert "<table" not in html

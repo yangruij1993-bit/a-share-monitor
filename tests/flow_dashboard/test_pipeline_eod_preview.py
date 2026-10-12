@@ -40,6 +40,10 @@ def test_run_eod_preview_writes_archive_with_v01(tmp_path, monkeypatch):
         "flow_dashboard.pipeline._load_fund_nav_for_pipeline",
         lambda codes, start, end, as_of: pd.DataFrame(),
     )
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._load_margin_detail_for_pipeline",
+        lambda start, end, as_of: pd.DataFrame(),
+    )
 
     output_dir = tmp_path / "ashare_flow_daily"
     path = run_eod_preview(
@@ -63,6 +67,10 @@ def test_run_eod_preview_marks_partial_when_share_missing(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(
         "flow_dashboard.pipeline._load_margin_for_pipeline",
+        lambda start, end, as_of: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._load_margin_detail_for_pipeline",
         lambda start, end, as_of: pd.DataFrame(),
     )
     monkeypatch.setattr(
@@ -104,6 +112,10 @@ def test_run_eod_preview_marks_partial_when_share_dated_before_end(tmp_path, mon
     )
     monkeypatch.setattr(
         "flow_dashboard.pipeline._load_margin_for_pipeline",
+        lambda start, end, as_of: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._load_margin_detail_for_pipeline",
         lambda start, end, as_of: pd.DataFrame(),
     )
     monkeypatch.setattr(

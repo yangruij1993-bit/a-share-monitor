@@ -286,23 +286,42 @@ def pull_index_member(index_code: str) -> pd.DataFrame:
 # Task 2: margin_detail（个股两融明细）
 # ============================================================
 
-def pull_margin_detail(trade_date: str) -> pd.DataFrame:
-    """拉取个股两融明细（单日）。
+def pull_margin_detail(
+    trade_date: str,
+    *,
+    page_size: int = 1000,
+    max_pages: int = 10,
+) -> pd.DataFrame:
+    """拉取个股两融明细（单日，limit/offset 分页拉全沪深北）。
+
+    不分页时单次请求约被截到 2000 行沪市代码，深市（含创业板 300/301）
+    与北交所整体缺失（实测 2026-10-09 全量 4455 行）。
 
     Args:
         trade_date: 'YYYYMMDD' 字符串
+        page_size: 每页行数
+        max_pages: 分页上限（防接口异常死循环；10 页 = 1 万行 > 当前全量）
 
     Returns columns: trade_date, ts_code, rzye, rqye, rzmre, rqyl, rzche, rqchl, rqmcl, rzrqye
                      （单位：元；rzye=融资余额, rqye=融券余额, rzmre=融资买入额,
                        rqyl=融券卖出额, rzche=融资偿还额, rqchl=融券偿还额）
     """
     pro = get_pro_api()
-    df = pro.margin_detail(trade_date=trade_date)
-    if df is None or df.empty:
+    frames: list[pd.DataFrame] = []
+    for page in range(max_pages):
+        df = pro.margin_detail(
+            trade_date=trade_date, limit=page_size, offset=page * page_size
+        )
+        if df is None or df.empty:
+            break
+        frames.append(df)
+        if len(df) < page_size:
+            break
+    if not frames:
         return pd.DataFrame(columns=[
             "trade_date", "ts_code", "rzye", "rqye", "rzmre", "rqyl",
         ])
-    df = df.copy()
+    df = pd.concat(frames, ignore_index=True).copy()
     df["trade_date"] = _parse_mixed_date(df["trade_date"])
     for col in ("rzye", "rqye", "rzmre", "rqyl", "rzche", "rqchl", "rqmcl", "rzrqye"):
         if col in df.columns:
