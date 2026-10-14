@@ -143,6 +143,23 @@ def test_hk_eod_fetches_and_publishes_on_trading_day(tmp_path, monkeypatch):
     assert "report_2026-09-18_v01.html" in out.name
 
 
+def test_hk_eod_fetch_only_does_not_publish_evening_report(tmp_path, monkeypatch):
+    from flow_dashboard import hk_short_pipeline as hp
+
+    fetched = []
+    monkeypatch.setattr(hp, "_fetch_hk_increments", lambda as_of: fetched.append(as_of))
+    monkeypatch.setattr(
+        "flow_dashboard.pipeline._run_eod_preview_inner",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not publish")),
+    )
+    out = hp.run_hk_short_eod(
+        as_of=pd.Timestamp("2026-09-18 18:45", tz="Asia/Shanghai"),
+        output_dir=tmp_path, lock_path=tmp_path / "runners.lock", publish=False,
+    )
+    assert len(fetched) == 1
+    assert out == tmp_path / "latest.html"
+
+
 def test_hk_eod_skipped_due_to_lock(tmp_path, monkeypatch):
     import fcntl
 

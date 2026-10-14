@@ -9,16 +9,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import pandas as pd  # noqa: E402
+import pandas as pd
 
-from flow_dashboard.config import TIMEZONE  # noqa: E402
-from flow_dashboard.pipeline import run_daily_finalize  # noqa: E402
+from flow_dashboard.config import OUTPUT_DIR, TIMEZONE
+from flow_dashboard.pipeline import run_daily_finalize
+from flow_dashboard.schedule import should_retry_finalize
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-date", default=None)
     parser.add_argument("--as-of", default=None)
+    parser.add_argument("--retry-if-partial", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
 
@@ -30,6 +32,9 @@ def main() -> None:
         as_of = pd.Timestamp.now(tz=TIMEZONE)
 
     data_date = args.data_date or (as_of - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    if args.retry_if_partial and not should_retry_finalize(OUTPUT_DIR, data_date, as_of):
+        print(f"daily_finalize skipped: {data_date} morning report complete")
+        return
     path = run_daily_finalize(data_date=data_date, as_of=as_of)
     print(f"daily_finalize published: {path}")
 

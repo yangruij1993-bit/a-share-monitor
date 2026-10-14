@@ -183,6 +183,53 @@ def run_eod_preview(
         return output_dir / f"report_{data_date}_v01.html"
 
 
+def missing_report_sources(
+    data_date: pd.Timestamp,
+    codes: list[str],
+    etf_share: pd.DataFrame,
+    fund_nav: pd.DataFrame,
+    margin_df: pd.DataFrame,
+    margin_detail: pd.DataFrame,
+    futures: pd.DataFrame | None = None,
+    future_codes: list[str] | None = None,
+    indices: pd.DataFrame | None = None,
+    index_codes: list[str] | None = None,
+) -> list[str]:
+    """列出报告日期仍缺失的 A 股源数据。"""
+    day = pd.Timestamp(data_date).normalize()
+    missing = []
+
+    def codes_on_day(df: pd.DataFrame, date_col: str, code_col: str) -> set[str]:
+        if df.empty or date_col not in df or code_col not in df:
+            return set()
+        dated = df[pd.to_datetime(df[date_col]).dt.normalize() == day]
+        return set(dated[code_col].astype(str))
+
+    shares_today = codes_on_day(etf_share, "trade_date", "ts_code")
+    nav_today = codes_on_day(fund_nav, "nav_date", "ts_code")
+    margin_today = codes_on_day(margin_df, "trade_date", "exchange_id")
+    for code in codes:
+        if code not in shares_today:
+            missing.append(f"etf_share:{code}")
+    for code in codes:
+        if code not in nav_today:
+            missing.append(f"fund_nav:{code}")
+    for exchange in ("SSE", "SZSE", "BSE"):
+        if exchange not in margin_today:
+            missing.append(f"margin:{exchange}")
+    if margin_detail.empty or "trade_date" not in margin_detail or not (
+        pd.to_datetime(margin_detail["trade_date"]).dt.normalize() == day
+    ).any():
+        missing.append("margin_detail")
+    if future_codes is not None:
+        future_today = codes_on_day(futures if futures is not None else pd.DataFrame(), "trade_date", "ts_code")
+        missing.extend(f"fut_daily:{code}" for code in future_codes if code not in future_today)
+    if index_codes is not None:
+        index_today = codes_on_day(indices if indices is not None else pd.DataFrame(), "trade_date", "ts_code")
+        missing.extend(f"index_daily:{code}" for code in index_codes if code not in index_today)
+    return missing
+
+
 def _run_eod_preview_inner(
     data_date: str,
     as_of: pd.Timestamp,
@@ -286,13 +333,6 @@ def _run_eod_preview_inner(
     )
     spot_500 = _load_index_daily_for_pipeline("000905.SH", start, end, as_of)
     spot_1000 = _load_index_daily_for_pipeline("000852.SH", start, end, as_of)
-
-    is_partial = (
-        etf_share.empty
-        or "trade_date" not in etf_share.columns
-        or pd.isna(etf_share["trade_date"].max())
-        or etf_share["trade_date"].max() < end
-    )
 
     fund_nav = _load_fund_nav_for_pipeline(
         codes=codes, start=start, end=end, as_of=as_of
@@ -430,6 +470,14 @@ def _run_eod_preview_inner(
     margin_trend_start = pd.Timestamp(data_date) - pd.DateOffset(years=2)
     margin_long = _load_margin_for_pipeline(margin_trend_start, end, as_of)
     margin_detail_long = _load_margin_detail_for_pipeline(margin_trend_start, end, as_of)
+    missing_sources = missing_report_sources(
+        end, codes, etf_share, fund_nav, margin_df, margin_detail_long,
+        futures=pd.concat([ic_fut, im_fut], ignore_index=True),
+        future_codes=[f"{prefix}{ym}.CFX" for prefix in ("IC", "IM") for ym, _ in tenors],
+        indices=pd.concat([spot_500, spot_1000], ignore_index=True),
+        index_codes=["000905.SH", "000852.SH"],
+    )
+    is_partial = bool(missing_sources)
     market_long_agg = (
         aggregate_market_margin(margin_long, market_scope=None)
         if not margin_long.empty
@@ -554,7 +602,7 @@ def _run_eod_preview_inner(
         data_date=report_date,
         last_success_at=as_of.strftime("%Y-%m-%d %H:%M CST"),
         footer="市场观察，非交易建议。"
-        + (" 本期为 partial：ETF 份额数据尚未完整入库。" if is_partial else ""),
+        + (f" 本期为 partial：{len(missing_sources)} 项源数据尚未完整入库。" if is_partial else ""),
         tabs=[
             {
                 "id": "ashare",
@@ -594,6 +642,7 @@ def _run_eod_preview_inner(
             },
             "panel_status": {
                 "is_partial": is_partial,
+                "missing_sources": missing_sources,
                 "ashare_data_date": data_date,
                 "hk_data_date": hk_data_date,
             },

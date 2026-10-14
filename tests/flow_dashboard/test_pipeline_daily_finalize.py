@@ -56,7 +56,7 @@ def test_daily_finalize_increments_version(tmp_path, monkeypatch):
     assert (output_dir / "report_2026-08-12_v01.html").exists()
 
 
-def test_daily_finalize_does_not_mark_partial_when_full(monkeypatch, tmp_path):
+def test_daily_finalize_marks_partial_when_only_one_etf_share_arrives(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "flow_dashboard.pipeline._load_etf_share_for_pipeline",
         lambda codes, start, end, as_of: pd.DataFrame([
@@ -83,4 +83,4 @@ def test_daily_finalize_does_not_mark_partial_when_full(monkeypatch, tmp_path):
         output_dir=output_dir, lock_path=output_dir / "runners.lock",
     )
     html = path.read_text()
-    assert "partial" not in html.lower() or "(partial)" not in html
+    assert "(partial)" in html

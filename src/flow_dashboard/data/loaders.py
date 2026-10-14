@@ -533,8 +533,13 @@ def load_margin_detail(
             cached = cached[cached["available_at"] <= as_of]
             if not cached.empty:
                 out_frames.append(cached)
-            # 文件存在即"已问过"（含空哨兵），不再重拉
-            continue
+                continue
+            # 最近交易日的空结果可能只是上游延迟；次晨仍需重试。
+            as_of_day = pd.Timestamp(as_of)
+            if as_of_day.tzinfo is not None:
+                as_of_day = as_of_day.tz_convert(TIMEZONE).tz_localize(None)
+            if d.weekday() >= 5 or d < as_of_day.normalize() - pd.Timedelta(days=7):
+                continue
 
         fresh = _pull_margin_detail_for_load(d.strftime("%Y%m%d"))
         if fresh.empty:

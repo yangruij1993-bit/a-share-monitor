@@ -47,7 +47,7 @@ def _daily_flow_total(flow: pd.DataFrame, label: str | None = None) -> pd.Series
         sub = flow[flow["label"] == label]
     if sub.empty:
         return pd.Series(dtype=float)
-    return sub.groupby("trade_date")["etf_estimated_flow_cny"].sum().sort_index()
+    return sub.groupby("trade_date")["etf_estimated_flow_cny"].sum(min_count=1).sort_index()
 
 
 def _streak_text(series: pd.Series) -> str:

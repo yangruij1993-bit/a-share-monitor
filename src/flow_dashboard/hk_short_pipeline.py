@@ -72,6 +72,7 @@ def run_hk_short_eod(
     as_of: pd.Timestamp,
     output_dir: Path | str | None = None,
     lock_path: Path | str | None = None,
+    publish: bool = True,
 ) -> Path:
     output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
     lock_path = Path(lock_path) if lock_path else RUNNERS_LOCK
@@ -86,6 +87,8 @@ def run_hk_short_eod(
     try:
         with acquire_runner_lock(lock_path):
             _fetch_hk_increments(as_of)
+            if not publish:
+                return output_dir / "latest.html"
             from flow_dashboard.pipeline import _run_eod_preview_inner
 
             report_date = latest_trading_day_on_or_before(ts).strftime("%Y-%m-%d")

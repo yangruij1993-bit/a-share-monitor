@@ -161,3 +161,25 @@ def test_load_margin_detail_no_sentinel_before_publish_time(tmp_path):
     assert calls["20260811"] == 2  # 发布后确实重拉了
     assert len(df) == 2
     assert (tmp_path / "margin_detail_20260811.parquet").exists()
+
+
+def test_recent_empty_sentinel_is_retried_next_morning(tmp_path):
+    day = pd.Timestamp("2026-10-13")
+    path = tmp_path / "margin_detail_20261013.parquet"
+    state = {"calls": 0}
+
+    def pull(trade_date):
+        state["calls"] += 1
+        return pd.DataFrame() if state["calls"] == 1 else _fake_margin_detail(trade_date)
+
+    with patch("flow_dashboard.data.loaders._pull_margin_detail_for_load", side_effect=pull):
+        load_margin_detail(start=day, end=day,
+                           as_of=pd.Timestamp("2026-10-13 19:30", tz="Asia/Shanghai"),
+                           cache_dir=tmp_path)
+        assert path.exists() and pd.read_parquet(path).empty
+        result = load_margin_detail(start=day, end=day,
+                                    as_of=pd.Timestamp("2026-10-14 08:00", tz="Asia/Shanghai"),
+                                    cache_dir=tmp_path)
+    assert state["calls"] == 2
+    assert len(result) == 2
+    assert len(pd.read_parquet(path)) == 2

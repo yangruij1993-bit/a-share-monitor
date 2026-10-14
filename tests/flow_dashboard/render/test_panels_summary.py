@@ -38,6 +38,12 @@ def test_etf_cards_show_streak_and_multi_window():
     assert cards[0]["tone"] == "negative"
 
 
+def test_etf_cards_do_not_show_zero_when_today_nav_missing():
+    flow = _flow_df(["2026-10-12", "2026-10-13"], [10e8, float("nan")])
+    cards = build_etf_summary_cards(flow)
+    assert cards[0]["value"] == "—"
+
+
 def test_margin_cards_show_daily_and_20d_change():
     dates = [f"2026-07-{d:02d}" for d in range(6, 31)] + [
         "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"

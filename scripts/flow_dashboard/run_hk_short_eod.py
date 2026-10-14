@@ -17,6 +17,7 @@ from flow_dashboard.config import TIMEZONE
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--as-of", default=None, help="回放时点（默认 now，ISO 格式）")
+    parser.add_argument("--fetch-only", action="store_true", help="只更新缓存，不发布晚间报表")
     args = parser.parse_args()
 
     import pandas as pd
@@ -31,8 +32,8 @@ def main() -> int:
     )
     from flow_dashboard.hk_short_pipeline import run_hk_short_eod
 
-    out = run_hk_short_eod(as_of=as_of)
-    print(f"published: {out}")
+    out = run_hk_short_eod(as_of=as_of, publish=not args.fetch_only)
+    print(f"{'fetched' if args.fetch_only else 'published'}: {out}")
     return 0
 
 
