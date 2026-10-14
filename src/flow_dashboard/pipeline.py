@@ -356,6 +356,10 @@ def _run_eod_preview_inner(
     # 拿到正确的 prev_share）。先算 flow → 每 (ts_code, trade_date) 唯一 → diff 正确；
     # 然后再 merge labels 把行 explode 到各个 panel。
     flow = compute_etf_flow(merged) if not merged.empty else merged
+    # 份额源会在周末/休市日返回少量记录，但这些日子没有基金净值。
+    # 空流量进入 groupby.sum 后会变成 0，并在分类横轴留下空日期。
+    if not flow.empty:
+        flow = flow[flow["etf_estimated_flow_cny"].notna()].copy()
 
     if not flow.empty and (
         "dimension" not in flow.columns or "label" not in flow.columns

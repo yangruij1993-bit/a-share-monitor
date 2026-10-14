@@ -1,10 +1,7 @@
 """run_eod_preview 测试。"""
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
-import pytest
 
 from flow_dashboard.pipeline import run_eod_preview
 
@@ -205,3 +202,53 @@ def test_run_eod_preview_includes_industry_heatmap_panel(tmp_path, monkeypatch):
     )
     html = path.read_text()
     assert 'id="panel-margin-industry-heatmap"' in html
+
+
+def test_report_excludes_nontrading_share_rows_without_nav_from_daily_charts(tmp_path, monkeypatch):
+    """休市日份额记录没有净值，不能在日度图上留下空日期。"""
+    days = [pd.Timestamp(d) for d in (
+        "2026-09-30", "2026-10-01", "2026-10-08", "2026-10-09", "2026-10-10"
+    )]
+    shares = pd.DataFrame({
+        "ts_code": ["159915.SZ"] * len(days),
+        "trade_date": days,
+        "share_in_shares": [100e8, 100e8, 105e8, 110e8, 110e8],
+        "total_size_cny": [300e8] * len(days),
+        "quality_flags": [""] * len(days),
+    })
+    nav = pd.DataFrame({
+        "ts_code": ["159915.SZ"] * 3,
+        "nav_date": [days[0], days[2], days[3]],
+        "unit_nav": [3.0, 3.0, 3.0],
+    })
+    monkeypatch.setattr("flow_dashboard.pipeline._load_etf_share_for_pipeline",
+                        lambda codes, start, end, as_of: shares)
+    monkeypatch.setattr("flow_dashboard.pipeline._load_fund_nav_for_pipeline",
+                        lambda codes, start, end, as_of: nav)
+    monkeypatch.setattr("flow_dashboard.pipeline._load_margin_for_pipeline",
+                        lambda start, end, as_of: pd.DataFrame())
+    monkeypatch.setattr("flow_dashboard.pipeline._load_margin_detail_for_pipeline",
+                        lambda start, end, as_of: pd.DataFrame())
+    monkeypatch.setattr("flow_dashboard.pipeline._load_fut_daily_for_pipeline",
+                        lambda ts_code, start, end, as_of: pd.DataFrame())
+    monkeypatch.setattr("flow_dashboard.pipeline._load_index_daily_for_pipeline",
+                        lambda ts_code, start, end, as_of: pd.DataFrame())
+    seen = {}
+
+    def capture_total_market(df, **kwargs):
+        seen["dates"] = set(df["trade_date"])
+        return '<div id="panel-total-market-daily"></div>'
+
+    monkeypatch.setattr("flow_dashboard.render.panels_daily.render_total_market_daily",
+                        capture_total_market)
+    output_dir = tmp_path / "reports"
+    run_eod_preview(
+        data_date="2026-10-10",
+        as_of=pd.Timestamp("2026-10-11 09:00", tz="Asia/Shanghai"),
+        output_dir=output_dir,
+        lock_path=output_dir / "runners.lock",
+        universe=["159915.SZ"],
+    )
+    assert pd.Timestamp("2026-10-09") in seen["dates"]
+    assert pd.Timestamp("2026-10-01") not in seen["dates"]
+    assert pd.Timestamp("2026-10-10") not in seen["dates"]
