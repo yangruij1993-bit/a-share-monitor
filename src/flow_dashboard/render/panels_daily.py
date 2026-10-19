@@ -65,18 +65,65 @@ def _stale_or_none(
     return None
 
 
+def _aggregate_by_benchmark(df: pd.DataFrame) -> pd.DataFrame:
+    """benchmark 维度行按 (label=指数, trade_date) 加总，同指数全部 ETF 合并为一条。
+
+    宽基指数普遍有 4~20 只 ETF（如沪深300 14 只），逐只画图会淹没主要趋势；
+    汇金也可能买入任一管理人产品，只有按指数加总才不漏国家队的买入。
+    """
+    sub = df
+    if "dimension" in df.columns:
+        sub = df[df["dimension"] == "benchmark"]
+    if sub.empty:
+        return sub
+    return (
+        sub.groupby(["label", "trade_date"], as_index=False)["etf_estimated_flow_cny"]
+        .sum(min_count=1)
+        .sort_values(["label", "trade_date"])
+        .reset_index(drop=True)
+    )
+
+
+def _huijin_benchmark_agg(df: pd.DataFrame) -> pd.DataFrame:
+    """汇金标的（ownership=huijin）∩ benchmark 维度，按指数聚合。
+
+    汇金身份由 ownership 维度行给出；流量取这些标的的 benchmark 行再按指数加总，
+    非汇金标的（同指数其他管理人产品）不会混入。
+    """
+    if "label" not in df.columns or "ts_code" not in df.columns:
+        return pd.DataFrame()
+    huijin_codes = set(df.loc[df["label"] == "huijin", "ts_code"].dropna().unique())
+    if not huijin_codes:
+        return pd.DataFrame()
+    sub = df
+    if "dimension" in df.columns:
+        sub = df[df["dimension"] == "benchmark"]
+    sub = sub[sub["ts_code"].isin(huijin_codes)]
+    if sub.empty:
+        return sub
+    return (
+        sub.groupby(["label", "trade_date"], as_index=False)["etf_estimated_flow_cny"]
+        .sum(min_count=1)
+        .sort_values(["label", "trade_date"])
+        .reset_index(drop=True)
+    )
+
+
 def render_huijin_broad_daily(
     df: pd.DataFrame, *, data_date: str, coverage: float | None, last_success_at: str | None
 ) -> str:
-    title = "国家队 · 汇金持仓宽基 ETF 日度流量"
-    subtitle = "中央汇金持仓的 3 只宽基（50/300/500 ETF）—— 国家队动向专项跟踪"
-    sub = df[df["label"] == "huijin"] if "label" in df.columns else df
+    title = "国家队 · 汇金持仓 ETF 日度流量（按指数聚合）"
+    subtitle = (
+        "中央汇金公开披露持仓的全部宽基 ETF（上证50 / 沪深300×4 / 中证500 / 中证1000 / "
+        "创业板 / 科创50）按所属指数加总 —— 同指数多只管理人产品合并，不漏国家队买入"
+    )
+    sub = _huijin_benchmark_agg(df)
     stale = _stale_or_none(sub, coverage, "panel-huijin-broad-daily", title, subtitle)
     if stale:
         return stale
-    fig = bar_flow_panel(sub, title=title,
-                         data_date=data_date, coverage=coverage,
-                         last_success_at=last_success_at)
+    fig = stacked_bar_breakdown_panel(sub, title=title,
+                                      data_date=data_date, coverage=coverage,
+                                      last_success_at=last_success_at)
     body = render_figure_to_html(fig, div_id="panel-huijin-broad-daily-fig")
     return _wrap_panel("panel-huijin-broad-daily", title, body, subtitle=subtitle)
 
@@ -123,15 +170,18 @@ def render_total_market_daily(
 def render_broad_daily(
     df: pd.DataFrame, *, data_date: str, coverage: float | None, last_success_at: str | None
 ) -> str:
-    title = "宽基 ETF 日度流量（按品种分色）"
-    subtitle = "资产类别=broad：50 / 300 / 500 / 创业板 4 只主流宽基指数 ETF"
-    sub = df[df["label"] == "broad"] if "label" in df.columns else df
+    title = "宽基 ETF 日度流量（按指数聚合）"
+    subtitle = (
+        "同一指数全部 ETF 净流入加总：上证50 / 沪深300 / 中证A500 / 中证500 / 中证1000 / "
+        "创业板 / 创业板50 / 科创50 / 科创100 —— 完整覆盖汇金可买入的宽基标的池"
+    )
+    sub = _aggregate_by_benchmark(df)
     stale = _stale_or_none(sub, coverage, "panel-broad-daily", title, subtitle)
     if stale:
         return stale
-    fig = bar_flow_panel(sub, title=title,
-                         data_date=data_date, coverage=coverage,
-                         last_success_at=last_success_at)
+    fig = stacked_bar_breakdown_panel(sub, title=title,
+                                      data_date=data_date, coverage=coverage,
+                                      last_success_at=last_success_at)
     body = render_figure_to_html(fig, div_id="panel-broad-daily-fig")
     return _wrap_panel("panel-broad-daily", title, body, subtitle=subtitle)
 

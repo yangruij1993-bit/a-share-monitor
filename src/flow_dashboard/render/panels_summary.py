@@ -114,7 +114,7 @@ def build_etf_summary_cards(
         {
             "label": "国家队（汇金）今日",
             "value": _fmt_yi(huijin_today),
-            "delta": f"近 {n_day_window} 日 {_fmt_yi(huijin_5d)} 亿 · 50/300/500",
+            "delta": f"近 {n_day_window} 日 {_fmt_yi(huijin_5d)} 亿 · 50/300/500/1000/创业板/科创50",
             "tone": _tone(huijin_today),
         },
         {

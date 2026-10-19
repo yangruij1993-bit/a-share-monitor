@@ -29,6 +29,16 @@ _LABEL_DISPLAY = {
     "growth": "成长",
     "huijin": "汇金",
     "ALL": "全市场",
+    # benchmark 维度：宽基指数 slug → 中文指数名
+    "csi50": "上证50",
+    "csi300": "沪深300",
+    "csi500": "中证500",
+    "csi1000": "中证1000",
+    "a500": "中证A500",
+    "gem": "创业板",
+    "chinext50": "创业板50",
+    "star50": "科创50",
+    "star100": "科创100",
 }
 
 
@@ -209,10 +219,18 @@ def horizontal_topn_panel(
         marker_color=colors,
         showlegend=False,
     ))
-    return apply_theme(
+    themed = apply_theme(
         fig, title=title, y_title="ETF", data_date=data_date,
         coverage=coverage, last_success_at=last_success_at, unit="亿元",
     )
+    # 轴覆写必须在 apply_theme 之后：其 xaxis dict 显式带 type="category"
+    # （为日期柱图设计），会把横向图的数值 x 变成等距类目轴。
+    # 1) y 轴反转：Plotly 横向 bar 默认第一个分类画在最底部，已按 |净流入|
+    #    降序排序，不反转会让最大值垫底（2026-10-16 实际踩坑）；
+    # 2) x 轴线性：条长 ∝ 净流入数值，而非类目序号的等差阶梯。
+    themed.update_yaxes(autorange="reversed")
+    themed.update_xaxes(type="linear")
+    return themed
 
 
 def multi_line_period_panel(
