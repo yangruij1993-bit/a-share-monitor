@@ -26,3 +26,8 @@ output/ashare_flow_daily/manifest/
 .idea/
 .DS_Store
 .env
+
+# Local agent working dirs
+.claude/
+.playwright-mcp/
+.spec-workflow/
