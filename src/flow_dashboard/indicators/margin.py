@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+FULL_MARGIN_EXCHANGES = ("SSE", "SZSE", "BSE")
+
 
 def aggregate_market_margin(
     df: pd.DataFrame,
@@ -28,6 +30,9 @@ def aggregate_market_margin(
     Returns:
         DataFrame: trade_date, exchange_id, rzye, rzmre, rzche
                    （ALL 行的 exchange_id="ALL"）
+
+    缺所防护：某交易日缺任一应有交易所时，该日不生成 ALL 行
+    （交易所发布有先后，部分和画进趋势图会形成假断崖）；明细行保留。
     """
     required = {"trade_date", "exchange_id", "rzye", "rzmre", "rzche"}
     missing = required - set(df.columns)
@@ -41,8 +46,12 @@ def aggregate_market_margin(
     # 明细行
     detail = df[["trade_date", "exchange_id", "rzye", "rzmre", "rzche"]].copy()
 
-    # ALL 行（按 trade_date 汇总）
-    all_rows = df.groupby("trade_date", as_index=False).agg(
+    # ALL 行（按 trade_date 汇总）——仅对交易所齐全的交易日
+    expected = set(market_scope) if market_scope is not None else set(FULL_MARGIN_EXCHANGES)
+    present = df.groupby("trade_date")["exchange_id"].apply(set)
+    complete_dates = present[present.map(expected.issubset)].index
+    complete = df[df["trade_date"].isin(complete_dates)]
+    all_rows = complete.groupby("trade_date", as_index=False).agg(
         rzye=("rzye", "sum"),
         rzmre=("rzmre", "sum"),
         rzche=("rzche", "sum"),

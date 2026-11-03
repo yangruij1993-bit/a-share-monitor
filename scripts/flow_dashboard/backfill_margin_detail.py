@@ -60,7 +60,7 @@ def backfill_detail(start: pd.Timestamp, end: pd.Timestamp, *, repull: bool, sle
         if fresh.empty:
             # 该日 19:00 发布时点已过才落空哨兵；未到 19:00 的空是"尚未发布"，
             # 落哨兵会永久阻断当晚 eod_preview 补拉（与 loader 同规则）
-            day_publish = pd.Timestamp(day, format="%Y%m%d") + pd.Timedelta(hours=19)
+            day_publish = pd.to_datetime(day, format="%Y%m%d") + pd.Timedelta(hours=19)
             now_local = pd.Timestamp.now(tz=TIMEZONE).tz_localize(None)
             if now_local >= day_publish:
                 pd.DataFrame(columns=list(AUDIT_COLUMNS)).to_parquet(cache_path)

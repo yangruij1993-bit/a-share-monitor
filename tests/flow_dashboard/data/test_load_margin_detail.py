@@ -17,6 +17,8 @@ def _fake_margin_detail(trade_date: str) -> pd.DataFrame:
          "rzye": 1e9, "rqye": 1e8, "rzmre": 1e8, "rqyl": 1e7},
         {"trade_date": ts, "ts_code": "600000.SH",
          "rzye": 2e9, "rqye": 2e8, "rzmre": 2e8, "rqyl": 2e7},
+        {"trade_date": ts, "ts_code": "430047.BJ",
+         "rzye": 3e8, "rqye": 3e7, "rzmre": 3e7, "rqyl": 3e6},
     ])
 
 
@@ -36,7 +38,7 @@ def test_load_margin_detail_pulls_each_trade_date(tmp_path):
         )
     # 5 个日历日 (08-07 ~ 08-11)
     assert mock.call_count == 5
-    assert len(df) == 10  # 5 days × 2 stocks
+    assert len(df) == 15  # 5 days × 3 stocks（沪深北三市）
 
 
 def test_load_margin_detail_has_audit_columns(tmp_path):
@@ -159,7 +161,7 @@ def test_load_margin_detail_no_sentinel_before_publish_time(tmp_path):
             cache_dir=tmp_path,
         )
     assert calls["20260811"] == 2  # 发布后确实重拉了
-    assert len(df) == 2
+    assert len(df) == 3
     assert (tmp_path / "margin_detail_20260811.parquet").exists()
 
 
@@ -181,5 +183,69 @@ def test_recent_empty_sentinel_is_retried_next_morning(tmp_path):
                                     as_of=pd.Timestamp("2026-10-14 08:00", tz="Asia/Shanghai"),
                                     cache_dir=tmp_path)
     assert state["calls"] == 2
-    assert len(result) == 2
-    assert len(pd.read_parquet(path)) == 2
+    assert len(result) == 3
+    assert len(pd.read_parquet(path)) == 3
+
+
+def test_load_margin_detail_repairs_partial_cached_day(tmp_path):
+    """回归 2026-10-27+：按日缓存缺市（深市发布滞后）时近期日子须重拉补齐。
+
+    部分数据"文件存在即跳过"会让创业板线（300/301 全在深市）断流。
+    """
+    full = _fake_margin_detail("2026-11-02")
+    partial = full[full["ts_code"] != "000001.SZ"].copy()  # 缺 SZ
+
+    calls = {"n": 0}
+
+    def _fake(trade_date: str) -> pd.DataFrame:
+        calls["n"] += 1
+        return (partial if calls["n"] == 1 else full).copy()
+
+    kwargs = dict(
+        start=pd.Timestamp("2026-11-02"),
+        end=pd.Timestamp("2026-11-02"),
+        as_of=pd.Timestamp("2026-11-03 10:00", tz="Asia/Shanghai"),
+        cache_dir=tmp_path,
+    )
+    with patch(
+        "flow_dashboard.data.loaders._pull_margin_detail_for_load",
+        side_effect=_fake,
+    ):
+        load_margin_detail(**kwargs)  # 第一次：缺 SZ 写盘
+        out = load_margin_detail(**kwargs)  # 第二次：应重拉修复
+    assert calls["n"] == 2
+    assert set(out["ts_code"]) == {"000001.SZ", "600000.SH", "430047.BJ"}
+
+
+def test_load_margin_detail_keeps_old_partial_day_without_refetch(tmp_path):
+    """超过重试窗口的部分数据保留事实、不再重拉（防 API 无限重试）。"""
+    full = _fake_margin_detail("2026-10-10")
+    partial = full[full["ts_code"] != "000001.SZ"].copy()
+
+    calls = {"n": 0}
+
+    def _fake(trade_date: str) -> pd.DataFrame:
+        calls["n"] += 1
+        return partial.copy()
+
+    # 首跑写入部分文件（绕过缓存直接造文件更直观：这里用 loader 首跑）
+    kwargs = dict(
+        start=pd.Timestamp("2026-10-10"),
+        end=pd.Timestamp("2026-10-10"),
+        as_of=pd.Timestamp("2026-10-11 10:00", tz="Asia/Shanghai"),
+        cache_dir=tmp_path,
+    )
+    with patch(
+        "flow_dashboard.data.loaders._pull_margin_detail_for_load",
+        side_effect=_fake,
+    ):
+        load_margin_detail(**kwargs)
+        # 一个月后再跑：超出 7 天重试窗口 → 不重拉，保留部分数据
+        out = load_margin_detail(
+            start=pd.Timestamp("2026-10-10"),
+            end=pd.Timestamp("2026-10-10"),
+            as_of=pd.Timestamp("2026-11-11 10:00", tz="Asia/Shanghai"),
+            cache_dir=tmp_path,
+        )
+    assert calls["n"] == 1
+    assert "000001.SZ" not in set(out["ts_code"])

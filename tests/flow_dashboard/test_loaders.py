@@ -198,6 +198,75 @@ def test_load_etf_share_live_integration(tushare_token, tmp_path):
     assert (df["source"] == "tushare").all()
 
 
+def _mock_margin_rows(date, exchanges):
+    return pd.DataFrame([
+        {"trade_date": pd.Timestamp(date), "exchange_id": ex,
+         "rzye": 1e11, "rzmre": 1e9, "rzche": 1e9}
+        for ex in exchanges
+    ])
+
+
+def test_load_margin_repairs_partial_latest_day(monkeypatch, tmp_path):
+    """回归 2026-11-02：缓存最新交易日缺所（深市发布滞后）时不得短路，
+    需重拉补齐缺失交易所。"""
+    calls = {"n": 0}
+
+    def mock_pull(start, end):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            frames = [
+                _mock_margin_rows("2026-10-30", ["SSE", "SZSE", "BSE"]),
+                _mock_margin_rows("2026-11-02", ["SSE", "BSE"]),  # SZSE 未发布
+            ]
+        else:
+            frames = [
+                _mock_margin_rows("2026-10-30", ["SSE", "SZSE", "BSE"]),
+                _mock_margin_rows("2026-11-02", ["SSE", "SZSE", "BSE"]),
+            ]
+        return pd.concat(frames, ignore_index=True)
+
+    monkeypatch.setattr(
+        "flow_dashboard.data.loaders._pull_margin_for_load", mock_pull
+    )
+    as_of = pd.Timestamp("2026-11-03 08:00", tz="Asia/Shanghai")
+    # start 落在缓存覆盖内，确保第二次调用真正走到"日期范围满足"的短路分支
+    kwargs = dict(
+        start=pd.Timestamp("2026-10-30"),
+        end=pd.Timestamp("2026-11-02"),
+        as_of=as_of, cache_dir=tmp_path,
+    )
+    load_margin(**kwargs)  # 第一次：部分数据写盘
+    out = load_margin(**kwargs)  # 第二次：应检测缺所并重拉修复
+    assert calls["n"] == 2
+    day = out[out["trade_date"] == pd.Timestamp("2026-11-02")]
+    assert set(day["exchange_id"]) == {"SSE", "SZSE", "BSE"}
+
+
+def test_load_margin_complete_cache_short_circuits(monkeypatch, tmp_path):
+    """缓存三所齐全时仍走短路，不重复拉取。"""
+    calls = {"n": 0}
+
+    def mock_pull(start, end):
+        calls["n"] += 1
+        return pd.concat([
+            _mock_margin_rows("2026-10-30", ["SSE", "SZSE", "BSE"]),
+            _mock_margin_rows("2026-11-02", ["SSE", "SZSE", "BSE"]),
+        ], ignore_index=True)
+
+    monkeypatch.setattr(
+        "flow_dashboard.data.loaders._pull_margin_for_load", mock_pull
+    )
+    as_of = pd.Timestamp("2026-11-03 08:00", tz="Asia/Shanghai")
+    kwargs = dict(
+        start=pd.Timestamp("2026-10-30"),
+        end=pd.Timestamp("2026-11-02"),
+        as_of=as_of, cache_dir=tmp_path,
+    )
+    load_margin(**kwargs)
+    load_margin(**kwargs)
+    assert calls["n"] == 1
+
+
 @pytest.mark.live
 def test_load_margin_live_integration(tushare_token, tmp_path):
     as_of = pd.Timestamp("2026-08-12 19:30", tz="Asia/Shanghai")

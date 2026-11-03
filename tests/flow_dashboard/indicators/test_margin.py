@@ -81,6 +81,47 @@ def test_aggregate_market_margin_out_of_tolerance_flag():
     # 若有 summary 校验：明细加总 = ALL，则不标；本测试中它们相等（ALL 就是 sum）
 
 
+# === 缺所防护（2026-11-02 事故：SZSE 未发布→ALL 行半仓断崖） ===
+
+def test_aggregate_market_margin_drops_all_row_on_incomplete_day():
+    """缺所交易日不得生成 ALL 行（部分和会被画成断崖）；明细行保留。"""
+    df = _sample_margin()
+    # 2026-08-07 缺 BSE（模拟深所未发布）
+    df = df[~(
+        (df["trade_date"] == pd.Timestamp("2026-08-07"))
+        & (df["exchange_id"] == "BSE")
+    )]
+    out = aggregate_market_margin(df, market_scope=None)
+
+    all_dates = set(out[out["exchange_id"] == "ALL"]["trade_date"])
+    assert pd.Timestamp("2026-08-07") not in all_dates
+    assert pd.Timestamp("2026-08-05") in all_dates
+    assert pd.Timestamp("2026-08-06") in all_dates
+
+    # 缺所日的明细行仍保留（事实数据，交易所面板还要用）
+    incomplete = out[out["trade_date"] == pd.Timestamp("2026-08-07")]
+    assert set(incomplete["exchange_id"]) == {"SSE", "SZSE"}
+
+
+def test_aggregate_market_margin_scope_completeness_follows_scope():
+    """market_scope 子集时按子集校验：BSE 缺失不影响 SSE+SZSE 的 ALL。"""
+    df = _sample_margin()
+    df = df[~(
+        (df["trade_date"] == pd.Timestamp("2026-08-07"))
+        & (df["exchange_id"] == "BSE")
+    )]
+    out = aggregate_market_margin(df, market_scope=["SSE", "SZSE"])
+    all_dates = set(out[out["exchange_id"] == "ALL"]["trade_date"])
+    assert pd.Timestamp("2026-08-07") in all_dates
+
+
+def test_aggregate_market_margin_all_rows_complete_when_full_input():
+    """三所齐全的正常输入不受影响（回归保护）。"""
+    out = aggregate_market_margin(_sample_margin(), market_scope=None)
+    n_all = len(out[out["exchange_id"] == "ALL"])
+    assert n_all == 4  # 8-05 / 8-06 / 8-07 / 8-12
+
+
 # === 创业板融资余额（300/301 前缀汇总，趋势面板源数据） ===
 
 def test_aggregate_chinext_margin_sums_300_301_only():

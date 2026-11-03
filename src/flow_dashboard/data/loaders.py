@@ -206,6 +206,24 @@ def _annotate_etf_share(
 
 # ============ Margin（spec §1.3 SSE/SZSE/BSE 三所） ============
 
+MARGIN_EXCHANGES = ("SSE", "SZSE", "BSE")
+
+
+def _margin_latest_day_complete(cached: pd.DataFrame) -> bool:
+    """缓存内最新交易日三所是否齐全。
+
+    交易所两融数据发布有先后（深市常晚数小时），T+1 早间拉取可能只拿到
+    部分交易所；此时不能短路，需重拉补齐，否则缺所日会长期留在缓存里。
+    """
+    if cached.empty:
+        return False
+    latest = cached["trade_date"].max()
+    present = set(
+        cached.loc[cached["trade_date"] == latest, "exchange_id"].astype(str)
+    )
+    return set(MARGIN_EXCHANGES).issubset(present)
+
+
 def load_margin(
     *,
     start: pd.Timestamp,
@@ -226,7 +244,11 @@ def load_margin(
         if not cached.empty:
             cached_start = cached["trade_date"].min()
             cached_end = cached["trade_date"].max()
-            if cached_start <= start and cached_end >= end:
+            if (
+                cached_start <= start
+                and cached_end >= end
+                and _margin_latest_day_complete(cached)
+            ):
                 return _filter_range(cached, start, end)
         fresh = _pull_margin_for_load(start, end)
         fresh = _annotate_margin(fresh, fetched_at)
@@ -504,6 +526,22 @@ def _annotate_fund_nav(
 
 # ============ 个股两融明细（Phase C：行业热力图源数据） ============
 
+MARGIN_DETAIL_SUFFIXES = (".SH", ".SZ", ".BJ")
+
+
+def _margin_detail_day_complete(cached: pd.DataFrame) -> bool:
+    """个股明细当日缓存是否沪深北三市齐全。
+
+    交易所明细发布有先后（深市常滞后数小时），T+1 早间拉取可能只拿到
+    部分市场；缺市文件若"存在即跳过"，创业板线（300/301 全在深市）
+    会断流。历史完整交易日均为三市齐全。
+    """
+    if cached.empty or "ts_code" not in cached.columns:
+        return False
+    suffixes = set(cached["ts_code"].astype(str).str[-3:])
+    return set(MARGIN_DETAIL_SUFFIXES).issubset(suffixes)
+
+
 def load_margin_detail(
     *,
     start: pd.Timestamp,
@@ -517,6 +555,8 @@ def load_margin_detail(
     每个交易日单独缓存一个 parquet（`margin_detail_YYYYMMDD.parquet`），
     失败一天不影响其他日。空数据日（周末/节假日）落空哨兵文件，
     后续长窗口运行不再重探（否则趋势面板 2 年窗口每次多打数百次 API）。
+    缺市的部分缓存（交易所发布滞后所致）在近期重试窗口内重拉补齐，
+    超窗则保留事实数据不再重试。
     """
     cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -531,14 +571,17 @@ def load_margin_detail(
         if use_cache and cache_path.exists():
             cached = pd.read_parquet(cache_path)
             cached = cached[cached["available_at"] <= as_of]
-            if not cached.empty:
+            if not cached.empty and _margin_detail_day_complete(cached):
                 out_frames.append(cached)
                 continue
-            # 最近交易日的空结果可能只是上游延迟；次晨仍需重试。
+            # 最近交易日的空/缺市结果可能只是上游延迟；近期仍需重试。
             as_of_day = pd.Timestamp(as_of)
             if as_of_day.tzinfo is not None:
                 as_of_day = as_of_day.tz_convert(TIMEZONE).tz_localize(None)
             if d.weekday() >= 5 or d < as_of_day.normalize() - pd.Timedelta(days=7):
+                # 超窗的部分数据保留事实（缺市日聚合层自会跳过 ALL 行）
+                if not cached.empty:
+                    out_frames.append(cached)
                 continue
 
         fresh = _pull_margin_detail_for_load(d.strftime("%Y%m%d"))
